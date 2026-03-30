@@ -4,6 +4,8 @@ import { tools } from "@/lib/ai/tools";
 import { handleTool } from "@/lib/ai/handlers";
 import Anthropic from "@anthropic-ai/sdk";
 
+export const maxDuration = 60;
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const systemPrompt = `You are a helpful property management assistant for GHM (a rental property management app).
@@ -19,57 +21,67 @@ export async function POST(req: NextRequest) {
     const messages: Anthropic.MessageParam[] = body.messages ?? [];
 
     const encoder = new TextEncoder();
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          let currentMessages = [...messages];
           let response = await client.messages.create({
             model: "claude-haiku-4-5-20251001",
             max_tokens: 1024,
             system: systemPrompt,
             tools,
-            messages,
+            messages: currentMessages,
           });
 
           // Tool use loop
           while (response.stop_reason === "tool_use") {
-            const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+            const toolUses = response.content.filter(
+              (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+            );
 
             const toolResults: Anthropic.ToolResultBlockParam[] = [];
             for (const toolUse of toolUses) {
-              const result = await handleTool(toolUse.name, toolUse.input as Record<string, unknown>, organizationId);
+              const result = await handleTool(
+                toolUse.name,
+                toolUse.input as Record<string, unknown>,
+                organizationId
+              );
               toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });
             }
 
-            // Continue conversation with tool results
+            currentMessages = [
+              ...currentMessages,
+              { role: "assistant", content: response.content },
+              { role: "user", content: toolResults },
+            ];
+
             response = await client.messages.create({
               model: "claude-haiku-4-5-20251001",
               max_tokens: 1024,
               system: systemPrompt,
               tools,
-              messages: [
-                ...messages,
-                { role: "assistant", content: response.content },
-                { role: "user", content: toolResults },
-              ],
+              messages: currentMessages,
             });
           }
 
-          // Stream the final text response
-          const textContent = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+          // Emit the final text
+          const textContent = response.content.find(
+            (b): b is Anthropic.TextBlock => b.type === "text"
+          );
           if (textContent) {
-            // Chunk by word for smooth streaming effect
-            const words = textContent.text.split(" ");
-            for (const word of words) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: word + " " })}\n\n`));
-              await new Promise((r) => setTimeout(r, 15));
-            }
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ text: textContent.text })}\n\n`)
+            );
           }
 
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
           console.error("AI chat error:", err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "AI service error" })}\n\n`));
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: "AI service error" })}\n\n`)
+          );
           controller.close();
         }
       },

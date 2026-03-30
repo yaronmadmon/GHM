@@ -78,6 +78,12 @@ export function ChatWidget() {
             if (parsed.text) {
               accumulated += parsed.text;
               setMessages((prev) =>
+                prev.map((m) => m.id === assistantId ? { ...m, content: accumulated.trimEnd() } : m)
+              );
+            }
+            if (parsed.error) {
+              accumulated = "Sorry, I encountered an error. Please try again.";
+              setMessages((prev) =>
                 prev.map((m) => m.id === assistantId ? { ...m, content: accumulated } : m)
               );
             }
