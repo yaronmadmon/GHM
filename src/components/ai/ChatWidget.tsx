@@ -82,7 +82,7 @@ export function ChatWidget() {
               );
             }
             if (parsed.error) {
-              accumulated = "Sorry, I encountered an error. Please try again.";
+              accumulated = `Error: ${parsed.error}`;
               setMessages((prev) =>
                 prev.map((m) => m.id === assistantId ? { ...m, content: accumulated } : m)
               );

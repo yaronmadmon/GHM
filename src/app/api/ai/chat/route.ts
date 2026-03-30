@@ -78,9 +78,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
-          console.error("AI chat error:", err);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error("AI chat error:", msg);
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ error: "AI service error" })}\n\n`)
+            encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
           );
           controller.close();
         }
