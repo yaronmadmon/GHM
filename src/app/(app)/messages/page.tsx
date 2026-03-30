@@ -70,7 +70,7 @@ export default function MessagesPage() {
   if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Messages</h1>
         <Button size="sm" onClick={() => toast.info("Select a tenant from the Tenants page to start a conversation")}>

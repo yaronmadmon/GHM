@@ -111,14 +111,14 @@ export function ChatWidget() {
       {/* Floating button */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-all z-50"
+        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-all z-50"
       >
         {open ? <X className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
       </button>
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-20 right-6 w-96 h-[560px] bg-background border rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden">
+        <div className="fixed bottom-36 right-2 left-2 md:left-auto md:bottom-20 md:right-6 md:w-96 h-[65vh] md:h-[560px] bg-background border rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-3 p-4 border-b bg-muted/30">
             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">

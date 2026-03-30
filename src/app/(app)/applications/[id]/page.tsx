@@ -108,7 +108,7 @@ export default function ApplicationDetailPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-4 md:space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/applications"><Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" /> Back</Button></Link>
         <div className="flex-1">

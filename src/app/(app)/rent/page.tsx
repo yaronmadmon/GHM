@@ -65,7 +65,6 @@ export default function RentPage() {
     if (!recordDialog) return;
     setSaving(true);
     const form = new FormData(e.currentTarget);
-
     const res = await fetch("/api/rent-payments", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -78,13 +77,9 @@ export default function RentPage() {
         notes: form.get("notes") || undefined,
       }),
     });
-
     setSaving(false);
-    if (res.ok) {
-      toast.success("Payment recorded!");
-      setRecordDialog(null);
-      load();
-    } else toast.error("Failed to record payment");
+    if (res.ok) { toast.success("Payment recorded!"); setRecordDialog(null); load(); }
+    else toast.error("Failed to record payment");
   }
 
   useEffect(() => { load(); }, [year, month]);
@@ -93,22 +88,24 @@ export default function RentPage() {
   const totalCollected = items.reduce((s, i) => s + (i.payment ? parseFloat(String(i.payment.amountPaid)) : 0), 0);
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Rent Tracking</h1>
-        <Button size="sm" variant="outline" onClick={generateMonth}>Generate month records</Button>
+        <h1 className="text-2xl font-semibold">Rent</h1>
+        <Button size="sm" variant="outline" onClick={generateMonth} className="text-xs md:text-sm">
+          Generate records
+        </Button>
       </div>
 
       {/* Month nav */}
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => navigate(-1)}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => navigate(-1)}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="font-semibold w-40 text-center">{monthName}</span>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => navigate(1)}>
+        <span className="font-semibold w-36 text-center text-sm md:text-base">{monthName}</span>
+        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => navigate(1)}>
           <ChevronRight className="h-4 w-4" />
         </Button>
-        <div className="ml-4 flex gap-4 text-sm">
+        <div className="flex gap-3 text-sm ml-1">
           <span className="text-muted-foreground">Expected: <strong>{formatCurrency(totalExpected)}</strong></span>
           <span className="text-muted-foreground">Collected: <strong className="text-emerald-600">{formatCurrency(totalCollected)}</strong></span>
         </div>
@@ -117,58 +114,79 @@ export default function RentPage() {
       {loading ? (
         <div className="text-muted-foreground text-sm">Loading…</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <p>No active leases found.</p>
-        </div>
+        <div className="text-center py-16 text-muted-foreground"><p>No active leases found.</p></div>
       ) : (
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tenant</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Unit</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Due</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Paid</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {items.map((item) => (
-                <tr key={item.leaseId} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">
+        <>
+          {/* Mobile card list */}
+          <div className="md:hidden space-y-2">
+            {items.map((item) => (
+              <div key={item.leaseId} className="rounded-lg border p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm truncate">
                     {item.tenants[0] ? `${item.tenants[0].firstName} ${item.tenants[0].lastName}` : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">
-                    {item.unit.property.name} · {item.unit.unitNumber}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">{formatCurrency(parseFloat(String(item.rentAmount)))}</td>
-                  <td className="px-4 py-3 text-right font-mono">
-                    {item.payment ? formatCurrency(parseFloat(String(item.payment.amountPaid))) : "—"}
-                  </td>
-                  <td className="px-4 py-3">
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">{item.unit.property.name} · {item.unit.unitNumber}</p>
+                  <div className="flex items-center gap-2 mt-1.5">
                     <Badge className={`text-xs border ${STATUS_STYLES[item.status] ?? ""}`}>
                       {item.status.replace("_", " ")}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setRecordDialog(item)}>
-                      <Plus className="h-3 w-3" />Record
-                    </Button>
-                  </td>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {item.payment ? `${formatCurrency(parseFloat(String(item.payment.amountPaid)))} / ` : ""}
+                      {formatCurrency(parseFloat(String(item.rentAmount)))}
+                    </span>
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" className="h-8 gap-1 text-xs shrink-0" onClick={() => setRecordDialog(item)}>
+                  <Plus className="h-3 w-3" />Record
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tenant</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Unit</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Due</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Paid</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y">
+                {items.map((item) => (
+                  <tr key={item.leaseId} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 font-medium">
+                      {item.tenants[0] ? `${item.tenants[0].firstName} ${item.tenants[0].lastName}` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{item.unit.property.name} · {item.unit.unitNumber}</td>
+                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(parseFloat(String(item.rentAmount)))}</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {item.payment ? formatCurrency(parseFloat(String(item.payment.amountPaid))) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge className={`text-xs border ${STATUS_STYLES[item.status] ?? ""}`}>{item.status.replace("_", " ")}</Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setRecordDialog(item)}>
+                        <Plus className="h-3 w-3" />Record
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {/* Record Payment Dialog */}
       <Dialog open={!!recordDialog} onOpenChange={(o) => !o && setRecordDialog(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Record payment</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Record payment</DialogTitle></DialogHeader>
           {recordDialog && (
             <form onSubmit={handleRecord} className="space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -194,9 +212,7 @@ export default function RentPage() {
                 <Input name="notes" placeholder="Check #1234…" />
               </div>
               <div className="flex gap-2 pt-1">
-                <Button type="submit" disabled={saving} className="flex-1">
-                  {saving ? "Saving…" : "Record payment"}
-                </Button>
+                <Button type="submit" disabled={saving} className="flex-1">{saving ? "Saving…" : "Record payment"}</Button>
                 <Button type="button" variant="outline" onClick={() => setRecordDialog(null)}>Cancel</Button>
               </div>
             </form>

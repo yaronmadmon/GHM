@@ -40,7 +40,7 @@ export default async function ApplicationsPage() {
   const byStatus = { pending: applications.filter((a) => a.status === "pending"), approved: applications.filter((a) => a.status === "approved"), denied: applications.filter((a) => a.status === "denied") };
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Applications</h1>

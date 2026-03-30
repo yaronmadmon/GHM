@@ -127,4 +127,7 @@
   html {
     @apply font-sans;
   }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }

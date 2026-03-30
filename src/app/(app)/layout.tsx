@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
+import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import { ChatWidget } from "@/components/ai/ChatWidget";
 import { prisma } from "@/lib/prisma";
 
@@ -19,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AppShell pendingApplications={pendingApps} unreadMessages={unreadMsgs}>
+      <MobileTopBar />
       {children}
       <ChatWidget />
     </AppShell>

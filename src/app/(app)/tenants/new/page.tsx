@@ -42,7 +42,7 @@ export default function NewTenantPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-4 md:space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/tenants"><Button variant="ghost" size="icon" className="h-8 w-8"><ArrowLeft className="h-4 w-4" /></Button></Link>
         <h1 className="text-2xl font-semibold">Add tenant</h1>

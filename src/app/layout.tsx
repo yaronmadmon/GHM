@@ -20,6 +20,13 @@ export const metadata: Metadata = {
   description: "Manage your rental properties with ease",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
