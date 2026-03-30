@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
         Status: r.status,
         "Payment Method": r.paymentMethod ?? "",
         "Due Date": r.dueDate.toISOString().split("T")[0],
-        "Paid Date": r.paidDate ? r.paidDate.toISOString().split("T")[0] : "",
+        "Paid Date": r.paidAt ? r.paidAt.toISOString().split("T")[0] : "",
       }));
       const ws = XLSX.utils.json_to_sheet(data);
       if (format === "excel") XLSX.utils.book_append_sheet(wb, ws, "Payments");
