@@ -38,13 +38,15 @@ model Organization {
 // USERS
 // ─────────────────────────────────────────
 model User {
-  id             String  @id @default(cuid())
-  organizationId String
-  email          String  @unique
-  passwordHash   String?
-  name           String?
-  role           String  @default("owner") // owner | member | viewer | tenant
-  avatarUrl      String?
+  id                  String    @id @default(cuid())
+  organizationId      String
+  email               String    @unique
+  passwordHash        String?
+  name                String?
+  role                String    @default("owner") // owner | member | viewer | tenant
+  avatarUrl           String?
+  portalInviteToken   String?   @unique
+  portalInviteExpiry  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -187,13 +189,19 @@ model Lease {
   depositAmount   Decimal?  @db.Decimal(10, 2)
   depositPaid     Boolean   @default(false)
   depositPaidAt   DateTime?
-  status          String    @default("active") // active | expired | terminated | pending
-  leaseType       String    @default("fixed") // fixed | month_to_month
-  lateFeeAmount   Decimal?  @db.Decimal(10, 2)
-  lateFeGraceDays Int       @default(5)
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  status              String    @default("active") // active | expired | terminated | pending
+  leaseType           String    @default("fixed") // fixed | month_to_month
+  lateFeeAmount       Decimal?  @db.Decimal(10, 2)
+  lateFeGraceDays     Int       @default(5)
+  notes               String?
+  // E-signing
+  signingToken        String?   @unique
+  signingStatus       String    @default("draft") // draft | sent | tenant_signed | fully_signed
+  tenantSignature     String?
+  tenantSignedAt      DateTime?
+  landlordSignedAt    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   organization  Organization    @relation(fields: [organizationId], references: [id])
   unit          Unit            @relation(fields: [unitId], references: [id])

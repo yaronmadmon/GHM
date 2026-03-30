@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { z } from "zod";
+import { sendPortalInvite, APP_URL } from "@/lib/email";
+import crypto from "crypto";
 
 const convertSchema = z.object({
   startDate: z.string(),
@@ -91,6 +93,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       return { tenant, lease, application: updatedApp };
     });
+
+    // 7. Create portal account + send invite (outside transaction, non-blocking)
+    if (application.email) {
+      try {
+        const inviteToken = crypto.randomBytes(32).toString("hex");
+        const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        const portalUser = await prisma.user.create({
+          data: {
+            organizationId,
+            email: application.email,
+            name: `${application.firstName} ${application.lastName}`,
+            role: "tenant",
+            portalInviteToken: inviteToken,
+            portalInviteExpiry: expiry,
+          },
+        });
+        await prisma.tenant.update({
+          where: { id: result.tenant.id },
+          data: { portalUserId: portalUser.id },
+        });
+        const unit = await prisma.unit.findUnique({ where: { id: application.unitId! }, include: { property: true } });
+        if (unit) {
+          const setupUrl = `${APP_URL}/portal/setup/${inviteToken}`;
+          await sendPortalInvite(application.email, `${application.firstName} ${application.lastName}`, setupUrl, unit.property.name);
+        }
+      } catch (e) {
+        console.error("Portal invite failed (non-blocking):", e);
+      }
+    }
 
     return Response.json(result, { status: 201 });
   } catch (err) {

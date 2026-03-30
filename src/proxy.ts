@@ -6,8 +6,8 @@ export default auth((req) => {
   const isLoggedIn = !!session?.user;
 
   const isAuthRoute = nextUrl.pathname.startsWith("/login") || nextUrl.pathname.startsWith("/register");
-  const isPublicApiRoute = nextUrl.pathname.startsWith("/api/apply") || nextUrl.pathname.startsWith("/api/auth") || nextUrl.pathname.startsWith("/api/uploadthing");
-  const isPublicPage = nextUrl.pathname.startsWith("/apply");
+  const isPublicApiRoute = nextUrl.pathname.startsWith("/api/apply") || nextUrl.pathname.startsWith("/api/auth") || nextUrl.pathname.startsWith("/api/uploadthing") || nextUrl.pathname.startsWith("/api/lease-sign") || nextUrl.pathname.startsWith("/api/portal/setup");
+  const isPublicPage = nextUrl.pathname.startsWith("/apply") || nextUrl.pathname.startsWith("/lease-sign") || nextUrl.pathname.startsWith("/portal/setup");
   const isApiRoute = nextUrl.pathname.startsWith("/api/");
 
   if (isAuthRoute) {

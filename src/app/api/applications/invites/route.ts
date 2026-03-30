@@ -3,11 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { sendApplicationInvite, APP_URL } from "@/lib/email";
 
 const createSchema = z.object({
   propertyId: z.string(),
   unitId: z.string().optional(),
   expiresAt: z.string().optional(),
+  sendToEmail: z.string().email().optional(),
+  sendToName: z.string().optional(),
 });
 
 export async function GET() {
@@ -50,6 +53,12 @@ export async function POST(req: NextRequest) {
       },
       include: { property: true, unit: true },
     });
+
+    // Send email if requested
+    if (data.sendToEmail) {
+      const applyUrl = `${APP_URL}/apply/${token}`;
+      await sendApplicationInvite(data.sendToEmail, data.sendToName ?? "", applyUrl, invite.property.name);
+    }
 
     return Response.json(invite, { status: 201 });
   } catch (err) {

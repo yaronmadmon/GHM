@@ -59,6 +59,7 @@ export default async function LeasesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Dates</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Rent</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Signing</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -95,6 +96,12 @@ export default async function LeasesPage() {
                       <Badge className={`text-xs border ${STATUS_STYLES[lease.status] ?? ""}`}>
                         {lease.status}
                       </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      {lease.signingStatus === "fully_signed" && <span className="text-xs text-green-600 font-medium">✓ Fully signed</span>}
+                      {lease.signingStatus === "tenant_signed" && <span className="text-xs text-amber-600 font-medium">Awaiting your signature</span>}
+                      {lease.signingStatus === "sent" && <span className="text-xs text-muted-foreground">Sent to tenant</span>}
+                      {lease.signingStatus === "draft" && <span className="text-xs text-muted-foreground">Not sent</span>}
                     </td>
                   </tr>
                 );
