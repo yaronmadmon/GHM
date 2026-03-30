@@ -17,15 +17,15 @@ export async function GET(req: NextRequest) {
     if (entities.includes("properties")) {
       const rows = await prisma.property.findMany({
         where: { organizationId, archivedAt: null },
-        select: { name: true, address: true, city: true, state: true, zip: true, type: true, status: true, units: true },
+        include: { units: { select: { id: true } } },
       });
       const data = rows.map((r) => ({
         Name: r.name,
-        Address: r.address,
+        Address: r.addressLine1,
         City: r.city,
         State: r.state,
         ZIP: r.zip,
-        Type: r.type,
+        Type: r.propertyType,
         Status: r.status,
         Units: r.units?.length ?? 0,
       }));

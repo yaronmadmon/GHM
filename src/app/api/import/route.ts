@@ -71,11 +71,11 @@ export async function POST(req: NextRequest) {
               data: {
                 organizationId,
                 name: mapped.name,
-                address: mapped.address,
+                addressLine1: mapped.address,
                 city: mapped.city || "",
                 state: mapped.state || "",
                 zip: mapped.zip || "",
-                type: mapped.type || "residential",
+                propertyType: mapped.type || "single_family",
               },
             });
             results.imported++;
