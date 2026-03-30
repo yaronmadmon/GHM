@@ -28,6 +28,8 @@ model Organization {
   lateFeeConfig       LateFeeConfig?
   applicationInvites  ApplicationInvite[]
   applications        Application[]
+  messages            Message[]
+  paymentRequests     PaymentRequest[]
 
   @@map("organizations")
 }
@@ -556,4 +558,90 @@ model ApplicationDocument {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("application_documents")
+}
+
+// ─────────────────────────────────────────
+// MESSAGES (landlord <-> tenant communication)
+// ─────────────────────────────────────────
+model Message {
+  id             String   @id @default(cuid())
+  organizationId String
+  threadId       String
+  senderId       String // userId
+  senderRole     String // landlord | tenant
+  recipientId    String // userId of recipient
+  subject        String?
+  body           String
+  isRead         Boolean  @default(false)
+  attachmentUrl  String?
+  relatedType    String? // lease | maintenance | payment
+  relatedId      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  thread       MessageThread @relation(fields: [threadId], references: [id])
+
+  @@index([organizationId])
+  @@index([threadId])
+  @@index([recipientId, isRead])
+  @@map("messages")
+}
+
+model MessageThread {
+  id             String   @id @default(cuid())
+  organizationId String
+  subject        String
+  landlordUserId String
+  tenantUserId   String
+  leaseId        String?
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  messages Message[]
+
+  @@index([organizationId])
+  @@index([tenantUserId])
+  @@index([landlordUserId])
+  @@map("message_threads")
+}
+
+// ─────────────────────────────────────────
+// PAYMENT REQUESTS (tenant-initiated)
+// ─────────────────────────────────────────
+model PaymentRequest {
+  id             String   @id @default(cuid())
+  organizationId String
+  leaseId        String
+  tenantUserId   String
+  amount         Decimal  @db.Decimal(10, 2)
+  method         String // cash | check | ach | zelle | venmo | other
+  notes          String?
+  receiptUrl     String?
+  status         String   @default("pending") // pending | confirmed | rejected
+  periodYear     Int
+  periodMonth    Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([leaseId])
+  @@index([status])
+  @@map("payment_requests")
+}
+
+// ─────────────────────────────────────────
+// TENANT NOTIFICATIONS
+// ─────────────────────────────────────────
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String // message | payment_due | maintenance_update | lease_expiry
+  title      String
+  body       String
+  isRead     Boolean  @default(false)
+  relatedUrl String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
 }
