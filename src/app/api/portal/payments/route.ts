@@ -11,7 +11,6 @@ export async function GET() {
         leaseLinks: {
           include: {
             lease: {
-              where: { status: "active" },
               include: {
                 rentPayments: { orderBy: { dueDate: "desc" }, take: 24 },
               },

@@ -18,7 +18,6 @@ export default async function TenantPortalPage() {
       leaseLinks: {
         include: {
           lease: {
-            where: { status: "active" },
             include: {
               unit: { include: { property: true } },
               rentPayments: { orderBy: { dueDate: "desc" }, take: 3 },

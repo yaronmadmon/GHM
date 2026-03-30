@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
         leaseLinks: {
           include: {
             lease: {
-              where: { status: "active" },
               include: { unit: { include: { property: true } } },
             },
           },

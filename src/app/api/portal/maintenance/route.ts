@@ -11,7 +11,6 @@ export async function GET() {
         leaseLinks: {
           include: {
             lease: {
-              where: { status: "active" },
               include: { unit: true },
             },
           },

@@ -16,7 +16,8 @@ export default async function TenantsPage() {
     where: { organizationId: session.user.organizationId },
     include: {
       leaseLinks: {
-        include: { lease: { where: { status: "active" }, include: { unit: { include: { property: true } } } } },
+        where: { lease: { status: "active" } },
+        include: { lease: { include: { unit: { include: { property: true } } } } },
       },
     },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
