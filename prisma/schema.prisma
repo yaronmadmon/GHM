@@ -623,6 +623,8 @@ model PaymentRequest {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  organization Organization @relation(fields: [organizationId], references: [id])
+
   @@index([organizationId])
   @@index([leaseId])
   @@index([status])
