@@ -5,7 +5,7 @@ const FROM = process.env.EMAIL_FROM ?? "GHM <noreply@resend.dev>";
 const APP_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
 async function send(to: string, subject: string, html: string) {
-  if (!resend) { console.log(`[email skipped - no RESEND_API_KEY] To: ${to} | Subject: ${subject}`); return; }
+  if (!resend) { throw new Error("Email not configured: RESEND_API_KEY is missing"); }
   await resend.emails.send({ from: FROM, to, subject, html });
 }
 

@@ -25,6 +25,8 @@ export function InviteButton({ properties }: { properties: Property[] }) {
 
   const units = properties.find((p) => p.id === selectedProperty)?.units ?? [];
 
+  const [emailWarning, setEmailWarning] = useState<string | null>(null);
+
   async function handleGenerate() {
     if (!selectedProperty) { toast.error("Select a property first"); return; }
     setLoading(true);
@@ -36,22 +38,27 @@ export function InviteButton({ properties }: { properties: Property[] }) {
     setLoading(false);
     if (!res.ok) { toast.error("Failed to generate invite link"); return; }
     const invite = await res.json();
-    setGeneratedUrl(`${window.location.origin}/apply/${invite.token}`);
+    setGeneratedUrl(invite.applyUrl ?? `${window.location.origin}/apply/${invite.token}`);
   }
 
   async function handleSendEmail() {
     if (!selectedProperty || !emailTo) { toast.error("Property and email are required"); return; }
     setSending(true);
+    setEmailWarning(null);
     const res = await fetch("/api/applications/invites", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ propertyId: selectedProperty, unitId: selectedUnit || undefined, sendToEmail: emailTo, sendToName: emailName }),
     });
     setSending(false);
-    if (!res.ok) { toast.error("Failed to send invite"); return; }
+    if (!res.ok) { toast.error("Failed to create invite"); return; }
     const invite = await res.json();
-    setGeneratedUrl(`${window.location.origin}/apply/${invite.token}`);
-    toast.success(`Invite emailed to ${emailTo}`);
+    setGeneratedUrl(invite.applyUrl ?? `${window.location.origin}/apply/${invite.token}`);
+    if (invite.emailSent) {
+      toast.success(`Invite emailed to ${emailTo}`);
+    } else {
+      setEmailWarning(`Email could not be sent to ${emailTo}. Share the link below directly.`);
+    }
   }
 
   async function copyUrl() {
@@ -62,7 +69,7 @@ export function InviteButton({ properties }: { properties: Property[] }) {
     toast.success("Link copied!");
   }
 
-  function reset() { setGeneratedUrl(null); setSelectedProperty(""); setSelectedUnit(""); setCopied(false); setEmailTo(""); setEmailName(""); }
+  function reset() { setGeneratedUrl(null); setSelectedProperty(""); setSelectedUnit(""); setCopied(false); setEmailTo(""); setEmailName(""); setEmailWarning(null); }
 
   return (
     <>
@@ -121,6 +128,11 @@ export function InviteButton({ properties }: { properties: Property[] }) {
             </div>
           ) : (
             <div className="space-y-4">
+              {emailWarning && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                  ⚠ {emailWarning}
+                </div>
+              )}
               <div className="p-3 bg-muted rounded-lg">
                 <p className="text-xs text-muted-foreground mb-1">Application link — share this with the applicant</p>
                 <p className="text-sm font-mono break-all">{generatedUrl}</p>

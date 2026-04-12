@@ -54,13 +54,20 @@ export async function POST(req: NextRequest) {
       include: { property: true, unit: true },
     });
 
+    let emailSent = false;
     // Send email if requested
     if (data.sendToEmail) {
       const applyUrl = `${APP_URL}/apply/${token}`;
-      await sendApplicationInvite(data.sendToEmail, data.sendToName ?? "", applyUrl, invite.property.name);
+      try {
+        await sendApplicationInvite(data.sendToEmail, data.sendToName ?? "", applyUrl, invite.property.name);
+        emailSent = true;
+      } catch (emailErr) {
+        console.error("Failed to send invite email:", emailErr);
+        // Don't fail the request — return the invite with emailSent=false so UI can warn
+      }
     }
 
-    return Response.json(invite, { status: 201 });
+    return Response.json({ ...invite, emailSent, applyUrl: `${APP_URL}/apply/${token}` }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return Response.json({ error: err.issues ?? [err.message] }, { status: 400 });
     return Response.json({ error: "Internal server error" }, { status: 500 });
