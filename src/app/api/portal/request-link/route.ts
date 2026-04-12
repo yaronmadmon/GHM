@@ -3,8 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 import { addMinutes } from "date-fns";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(req: NextRequest) {
   try {
     const { email } = await req.json();
@@ -36,6 +34,7 @@ export async function POST(req: NextRequest) {
 
     const url = `${process.env.NEXTAUTH_URL}/portal/auth/${session.token}`;
 
+    const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "noreply@yourdomain.com",
       to: email,
