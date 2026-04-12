@@ -22,10 +22,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const application = await prisma.application.findFirst({
       where: { id, organizationId },
+      include: { documents: true, references: true },
     });
     if (!application) return Response.json({ error: "Not found" }, { status: 404 });
     if (application.status === "approved") return Response.json({ error: "Already converted" }, { status: 409 });
     if (!application.unitId) return Response.json({ error: "No unit associated with this application" }, { status: 400 });
+
+    // Pre-flight validation guards
+    const guards: string[] = [];
+    if (!application.email) guards.push("Applicant email is required for portal invite");
+    if (!application.backgroundCheckStatus || !["passed", "conditional"].includes(application.backgroundCheckStatus)) {
+      guards.push("Screening must be marked passed or conditional");
+    }
+    if (application.documents.length === 0) {
+      guards.push("At least one supporting document is required");
+    }
+    if (guards.length > 0) {
+      return Response.json({ error: "Cannot approve: requirements not met", guards }, { status: 400 });
+    }
 
     // Atomic transaction: create tenant + lease + update unit status + update application
     const result = await prisma.$transaction(async (tx) => {

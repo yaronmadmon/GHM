@@ -175,6 +175,157 @@ export async function handleTool(name: string, input: ToolInput, organizationId:
       });
     }
 
+    case "list_applications": {
+      const apps = await prisma.application.findMany({
+        where: {
+          organizationId,
+          ...(input.status ? { status: input.status as string } : {}),
+        },
+        include: {
+          property: { select: { name: true } },
+          unit: { select: { unitNumber: true } },
+          _count: { select: { documents: true, references: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+      if (!apps.length) return "No applications found.";
+      return apps.map((a) => {
+        const loc = a.property?.name ? `${a.property.name}${a.unit ? ` unit ${a.unit.unitNumber}` : ""}` : "unknown property";
+        return `• [${a.id.slice(-8)}] ${a.firstName} ${a.lastName} — ${loc} — Status: ${a.status} — Docs: ${a._count.documents} — Screening: ${a.backgroundCheckStatus ?? "not_started"}`;
+      }).join("\n");
+    }
+
+    case "get_application": {
+      const includeOpts = {
+        property: { select: { name: true } },
+        unit: { select: { unitNumber: true } },
+        documents: true,
+        references: true,
+      } as const;
+      const app = input.applicationId
+        ? await prisma.application.findFirst({ where: { id: input.applicationId as string, organizationId }, include: includeOpts })
+        : input.applicantName
+          ? await (async () => {
+              const name = input.applicantName as string;
+              const [firstName, ...lastParts] = name.split(" ");
+              return prisma.application.findFirst({
+                where: { organizationId, OR: [{ firstName: { contains: firstName, mode: "insensitive" } }, { lastName: { contains: lastParts.join(" "), mode: "insensitive" } }] },
+                include: includeOpts,
+                orderBy: { createdAt: "desc" },
+              });
+            })()
+          : null;
+      if (!app) return "Application not found.";
+      const lines = [
+        `**Application: ${app.firstName} ${app.lastName}** (ID: ${app.id})`,
+        `Status: ${app.status}`,
+        `Property: ${app.property?.name ?? "N/A"}${app.unit ? ` unit ${app.unit.unitNumber}` : ""}`,
+        `Email: ${app.email ?? "missing"} | Phone: ${app.phone ?? "missing"}`,
+        `Employer: ${app.employerName ?? "N/A"} | Income: ${app.monthlyIncome ? formatCurrency(Number(app.monthlyIncome)) + "/mo" : "N/A"}`,
+        `Screening: ${app.backgroundCheckStatus ?? "not_started"}${app.backgroundCheckDate ? ` (${new Date(app.backgroundCheckDate).toDateString()})` : ""}`,
+        `Documents: ${app.documents.length} (${app.documents.map((d) => d.docType).join(", ") || "none"})`,
+        `References: ${app.references.length}`,
+        `Submitted: ${app.createdAt.toDateString()}`,
+      ];
+      return lines.join("\n");
+    }
+
+    case "advance_application_status": {
+      const appId = input.applicationId as string;
+      const newStatus = input.status as string;
+      const app = await prisma.application.findFirst({ where: { id: appId, organizationId } });
+      if (!app) return "Application not found.";
+      await prisma.application.update({
+        where: { id: appId },
+        data: { status: newStatus },
+      });
+      await prisma.activityEvent.create({
+        data: {
+          organizationId,
+          entityType: "application",
+          entityId: appId,
+          eventType: "status_changed",
+          metadata: { from: app.status, to: newStatus, actor: "ai_assistant" },
+        },
+      });
+      return `Application status updated from "${app.status}" to "${newStatus}".`;
+    }
+
+    case "set_screening_status": {
+      const appId = input.applicationId as string;
+      const app = await prisma.application.findFirst({ where: { id: appId, organizationId } });
+      if (!app) return "Application not found.";
+      await prisma.application.update({
+        where: { id: appId },
+        data: {
+          backgroundCheckStatus: input.backgroundCheckStatus as string,
+          backgroundCheckNotes: (input.backgroundCheckNotes as string) ?? undefined,
+          backgroundCheckDate: input.backgroundCheckDate ? new Date(input.backgroundCheckDate as string) : undefined,
+        },
+      });
+      await prisma.activityEvent.create({
+        data: {
+          organizationId,
+          entityType: "application",
+          entityId: appId,
+          eventType: "screening_updated",
+          metadata: { status: input.backgroundCheckStatus as string, actor: "ai_assistant" },
+        },
+      });
+      return `Screening status set to "${input.backgroundCheckStatus}" for ${app.firstName} ${app.lastName}.`;
+    }
+
+    case "add_application_document": {
+      const appId = input.applicationId as string;
+      const app = await prisma.application.findFirst({ where: { id: appId, organizationId } });
+      if (!app) return "Application not found.";
+      const doc = await prisma.applicationDocument.create({
+        data: {
+          applicationId: appId,
+          name: input.name as string,
+          url: input.url as string,
+          docType: input.docType as string,
+        },
+      });
+      await prisma.activityEvent.create({
+        data: {
+          organizationId,
+          entityType: "application",
+          entityId: appId,
+          eventType: "document_added",
+          metadata: { docType: input.docType as string, name: input.name as string, actor: "ai_assistant" },
+        },
+      });
+      return `Document "${input.name}" (${input.docType}) added to application for ${app.firstName} ${app.lastName}.`;
+    }
+
+    case "confirm_move_in": {
+      const leaseId = input.leaseId as string;
+      const lease = await prisma.lease.findFirst({
+        where: { id: leaseId, organizationId },
+        include: { tenants: { include: { tenant: true } } },
+      });
+      if (!lease) return "Lease not found.";
+      if (lease.signingStatus !== "fully_signed") return `Cannot confirm move-in: lease is not fully signed (current status: ${lease.signingStatus}).`;
+      if (lease.moveInCompleted) return "Move-in has already been confirmed for this lease.";
+      await prisma.lease.update({
+        where: { id: leaseId },
+        data: { moveInCompleted: true, moveInCompletedAt: new Date() },
+      });
+      await prisma.activityEvent.create({
+        data: {
+          organizationId,
+          entityType: "lease",
+          entityId: leaseId,
+          eventType: "move_in_confirmed",
+          metadata: { action: "move_in_confirmed", actor: "ai_assistant" },
+        },
+      });
+      const tenant = lease.tenants[0]?.tenant;
+      return `Move-in confirmed for lease${tenant ? ` (tenant: ${tenant.firstName} ${tenant.lastName})` : ""}.`;
+    }
+
     default:
       return `Unknown tool: ${name}`;
   }

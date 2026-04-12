@@ -85,4 +85,76 @@ export const tools: Anthropic.Tool[] = [
       required: ["tenantName", "amount"],
     },
   },
+  {
+    name: "list_applications",
+    description: "List tenant applications, optionally filtered by status",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["pending", "documents_requested", "under_review", "screening", "approved", "denied"], description: "Filter by workflow status" },
+      },
+    },
+  },
+  {
+    name: "get_application",
+    description: "Get full details of a single application including documents, screening, references, and workflow state",
+    input_schema: {
+      type: "object",
+      properties: {
+        applicationId: { type: "string", description: "Application ID" },
+        applicantName: { type: "string", description: "Applicant's name to search by (alternative to ID)" },
+      },
+    },
+  },
+  {
+    name: "advance_application_status",
+    description: "Move an application to a new workflow status (pending → documents_requested → under_review → screening → denied). Use the convert endpoint to approve.",
+    input_schema: {
+      type: "object",
+      properties: {
+        applicationId: { type: "string", description: "Application ID" },
+        status: { type: "string", enum: ["pending", "documents_requested", "under_review", "screening", "denied"], description: "New status to set" },
+      },
+      required: ["applicationId", "status"],
+    },
+  },
+  {
+    name: "set_screening_status",
+    description: "Update the background check / screening result for an application",
+    input_schema: {
+      type: "object",
+      properties: {
+        applicationId: { type: "string", description: "Application ID" },
+        backgroundCheckStatus: { type: "string", enum: ["not_started", "in_progress", "passed", "failed", "conditional"], description: "Screening result" },
+        backgroundCheckNotes: { type: "string", description: "Optional notes about the screening" },
+        backgroundCheckDate: { type: "string", description: "Date of background check (YYYY-MM-DD)" },
+      },
+      required: ["applicationId", "backgroundCheckStatus"],
+    },
+  },
+  {
+    name: "add_application_document",
+    description: "Add a document (pay stub, ID, bank statement, etc.) to an application",
+    input_schema: {
+      type: "object",
+      properties: {
+        applicationId: { type: "string", description: "Application ID" },
+        name: { type: "string", description: "Document name (e.g. 'Oct 2024 Pay Stub')" },
+        url: { type: "string", description: "Document URL (Google Drive, Dropbox, etc.)" },
+        docType: { type: "string", enum: ["pay_stub", "id", "bank_statement", "other"], description: "Document type" },
+      },
+      required: ["applicationId", "name", "url", "docType"],
+    },
+  },
+  {
+    name: "confirm_move_in",
+    description: "Confirm move-in for a fully-signed lease, marking the tenant as active",
+    input_schema: {
+      type: "object",
+      properties: {
+        leaseId: { type: "string", description: "Lease ID" },
+      },
+      required: ["leaseId"],
+    },
+  },
 ];

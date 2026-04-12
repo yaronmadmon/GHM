@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, FileText, DollarSign, Users, Send, CheckCircle, Building2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { MoveInChecklist } from "@/components/leases/MoveInChecklist";
 
 const STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
@@ -103,6 +104,28 @@ export default function LeaseDetailPage() {
         <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800 font-medium">
           ✓ Fully signed by both parties
           {lease.tenantSignedAt && ` — tenant signed ${formatDate(lease.tenantSignedAt)}`}
+        </div>
+      )}
+
+      {/* Move-in checklist */}
+      {lease.signingStatus === "fully_signed" && !lease.moveInCompleted && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />Move-in Checklist
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MoveInChecklist
+              leaseId={id}
+              onComplete={() => setLease((l: any) => ({ ...l, moveInCompleted: true, moveInCompletedAt: new Date().toISOString() }))}
+            />
+          </CardContent>
+        </Card>
+      )}
+      {lease.moveInCompleted && (
+        <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800 font-medium">
+          ✓ Move-in confirmed{lease.moveInCompletedAt ? ` — ${formatDate(lease.moveInCompletedAt)}` : ""}
         </div>
       )}
 
