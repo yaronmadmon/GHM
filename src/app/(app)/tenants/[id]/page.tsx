@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate, getInitials } from "@/lib/utils";
 import { TenantMessageButton } from "@/components/tenants/TenantMessageButton";
+import { SendPortalInviteButton } from "@/components/tenants/SendPortalInviteButton";
 
 export default async function TenantDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -95,10 +96,12 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
               existingThreadId={existingThread?.id}
               landlordUserId={session.user.id}
             />
+          ) : tenant.email ? (
+            <SendPortalInviteButton tenantId={tenant.id} email={tenant.email} />
           ) : (
             <Button size="sm" variant="outline" disabled className="gap-2">
               <MessageSquare className="h-4 w-4" />
-              No portal account
+              No email on file
             </Button>
           )}
         </div>

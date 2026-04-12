@@ -169,6 +169,7 @@ model Tenant {
   leaseLinks         LeaseTenant[]
   maintenanceReports MaintenanceRequest[]
   convertedFrom      Application?         @relation("converted_tenant")
+  portalSessions     PortalSession[]
 
   @@index([organizationId])
   @@index([email])
@@ -657,4 +658,20 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+// ─────────────────────────────────────────
+// TENANT PORTAL SESSIONS
+// ─────────────────────────────────────────
+model PortalSession {
+  id        String   @id @default(cuid())
+  token     String   @unique @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      String   // "magic" | "session"
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("portal_sessions")
 }

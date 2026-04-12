@@ -1,147 +1,159 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Wrench, Plus } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Wrench, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { formatDate } from "@/lib/utils";
 
-interface MaintenanceRequest {
-  id: string;
-  title: string;
-  category: string;
-  priority: string;
-  status: string;
-  description?: string;
-  createdAt: string;
-}
+const STATUS_STYLES: Record<string, string> = {
+  open: "bg-amber-100 text-amber-700 border-amber-200",
+  in_progress: "bg-blue-100 text-blue-700 border-blue-200",
+  resolved: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  closed: "bg-muted text-muted-foreground",
+};
 
-const PRIORITY_COLORS: Record<string, "default" | "destructive" | "secondary" | "outline"> = {
-  emergency: "destructive",
-  high: "destructive",
-  medium: "default",
-  low: "secondary",
+const PRIORITY_STYLES: Record<string, string> = {
+  emergency: "bg-red-100 text-red-700 border-red-200",
+  high: "bg-orange-100 text-orange-700 border-orange-200",
+  medium: "bg-amber-100 text-amber-700 border-amber-200",
+  low: "bg-muted text-muted-foreground",
 };
 
 export default function PortalMaintenancePage() {
-  const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [unitId, setUnitId] = useState("");
-  const [form, setForm] = useState({ title: "", category: "plumbing", priority: "medium", description: "" });
+  const router = useRouter();
+  const [requests, setRequests] = useState<any[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title: "", description: "", priority: "medium" });
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetch("/api/portal/maintenance")
-      .then((r) => r.json())
-      .then((d) => {
-        setRequests(d.requests ?? []);
-        setUnitId(d.unitId ?? "");
-        setLoading(false);
+      .then((r) => {
+        if (r.status === 401) { router.push("/portal/login"); return null; }
+        return r.json();
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .then((d) => d && setRequests(Array.isArray(d) ? d : []))
+      .catch(() => router.push("/portal/login"));
+  }, [router]);
 
-  async function submit() {
-    if (!unitId) { toast.error("No active unit found"); return; }
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.title.trim()) return;
     setSubmitting(true);
-    const res = await fetch("/api/maintenance", {
+    const res = await fetch("/api/portal/maintenance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, unitId }),
+      body: JSON.stringify(form),
     });
     setSubmitting(false);
-    if (!res.ok) { toast.error("Failed to submit"); return; }
+    if (!res.ok) { toast.error("Failed to submit request"); return; }
     const req = await res.json();
     setRequests((prev) => [req, ...prev]);
-    setOpen(false);
-    setForm({ title: "", category: "plumbing", priority: "medium", description: "" });
-    toast.success("Request submitted");
+    setForm({ title: "", description: "", priority: "medium" });
+    setShowForm(false);
+    toast.success("Maintenance request submitted!");
   }
 
-  if (loading) return <div className="p-4 text-muted-foreground">Loading...</div>;
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Maintenance</h1>
-        <Button size="sm" onClick={() => setOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> New Request
-        </Button>
-      </div>
+    <div className="min-h-screen bg-muted/20">
+      <header className="bg-background border-b sticky top-0 z-10">
+        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
+          <Link href="/portal">
+            <Button variant="ghost" size="sm" className="gap-1"><ArrowLeft className="h-4 w-4" />Back</Button>
+          </Link>
+          <h1 className="font-semibold flex-1">Maintenance</h1>
+          <Button size="sm" className="gap-1.5" onClick={() => setShowForm(true)}>
+            <Plus className="h-4 w-4" />New Request
+          </Button>
+        </div>
+      </header>
 
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Wrench className="h-5 w-5" /> My Requests</CardTitle></CardHeader>
-        <CardContent>
-          {requests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No maintenance requests yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {requests.map((r) => (
-                <div key={r.id} className="flex items-start justify-between py-3 border-b last:border-0">
-                  <div>
-                    <p className="text-sm font-medium">{r.title}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{r.category}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Badge variant={PRIORITY_COLORS[r.priority] ?? "secondary"} className="text-xs">{r.priority}</Badge>
-                    <Badge variant="outline" className="text-xs capitalize">{r.status.replace("_", " ")}</Badge>
-                  </div>
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        {showForm && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Submit a Request</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">What needs attention?</Label>
+                  <Input
+                    value={form.title}
+                    onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                    placeholder="Leaking faucet in kitchen"
+                    required
+                  />
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Details (optional)</Label>
+                  <Textarea
+                    value={form.description}
+                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                    placeholder="Describe the issue..."
+                    rows={3}
+                    className="resize-none text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Priority</Label>
+                  <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v ?? "medium" }))}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="emergency">Emergency</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" size="sm" disabled={submitting}>{submitting ? "Submitting..." : "Submit"}</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>New Maintenance Request</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Leaking faucet in bathroom" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Category</Label>
-                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v ?? "plumbing" }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["plumbing","electrical","hvac","appliance","structural","pest","other"].map((c) => (
-                      <SelectItem key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Wrench className="h-4 w-4" />Your Requests
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {requests.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No maintenance requests yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {requests.map((r) => (
+                  <div key={r.id} className="border rounded-lg p-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-sm">{r.title}</p>
+                      <Badge className={`border text-xs shrink-0 ${STATUS_STYLES[r.status] ?? ""}`}>{r.status.replace("_", " ")}</Badge>
+                    </div>
+                    {r.description && <p className="text-xs text-muted-foreground">{r.description}</p>}
+                    <div className="flex items-center gap-2">
+                      <Badge className={`border text-xs ${PRIORITY_STYLES[r.priority] ?? ""}`}>{r.priority}</Badge>
+                      <span className="text-xs text-muted-foreground">{formatDate(new Date(r.createdAt))}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="space-y-1.5">
-                <Label>Priority</Label>
-                <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v ?? "medium" }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["low","medium","high","emergency"].map((p) => (
-                      <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Description</Label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} placeholder="Describe the issue..." />
-            </div>
-            <Button onClick={submit} disabled={submitting || !form.title} className="w-full">
-              {submitting ? "Submitting..." : "Submit Request"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            )}
+          </CardContent>
+        </Card>
+      </main>
     </div>
   );
 }
