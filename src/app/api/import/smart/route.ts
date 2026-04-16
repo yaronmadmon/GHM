@@ -117,9 +117,17 @@ Rules:
         } else if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
           try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const pdfParse = require("pdf-parse") as (b: Buffer) => Promise<{ text: string }>;
-            const parsed = await pdfParse(buf);
-            textContent = parsed.text;
+            const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
+            // Disable worker — not available in serverless
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+            const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+            const pageTexts: string[] = [];
+            for (let i = 1; i <= doc.numPages; i++) {
+              const page = await doc.getPage(i);
+              const content = await page.getTextContent();
+              pageTexts.push(content.items.map((item: { str: string }) => item.str).join(" "));
+            }
+            textContent = pageTexts.join("\n");
           } catch {
             return Response.json(
               { error: "Could not read this PDF — try taking a screenshot of it instead and uploading that." },
