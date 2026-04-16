@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import { requireOrg } from "@/lib/session";
 import { tools } from "@/lib/ai/tools";
 import { handleTool } from "@/lib/ai/handlers";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
 export const maxDuration = 60;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const systemPrompt = `You are a powerful property management assistant for GHM with FULL CONTROL over the landlord's portfolio. You can read data AND take actions — creating tenants, properties, leases, maintenance requests, sending messages, recording transactions, and more.
 
@@ -40,61 +40,67 @@ export async function POST(req: NextRequest) {
   try {
     const { organizationId, userId } = await requireOrg();
     const body = await req.json();
-    const messages: Anthropic.MessageParam[] = body.messages ?? [];
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = body.messages ?? [];
 
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          let currentMessages = [...messages];
-          let response = await client.messages.create({
-            model: "claude-haiku-4-5-20251001",
+          let currentMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [...messages];
+          let response = await client.chat.completions.create({
+            model: "gpt-4o",
             max_tokens: 2048,
-            system: systemPrompt,
             tools,
-            messages: currentMessages,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...currentMessages,
+            ],
           });
 
           // Tool use loop — handles multi-step tool chains
-          while (response.stop_reason === "tool_use") {
-            const toolUses = response.content.filter(
-              (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
-            );
+          while (response.choices[0].finish_reason === "tool_calls") {
+            const toolCalls = response.choices[0].message.tool_calls ?? [];
 
-            const toolResults: Anthropic.ToolResultBlockParam[] = [];
-            for (const toolUse of toolUses) {
+            const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = [];
+            for (const tc of toolCalls) {
+              let input: Record<string, unknown> = {};
+              try { input = JSON.parse(tc.function.arguments); } catch {}
               const result = await handleTool(
-                toolUse.name,
-                toolUse.input as Record<string, unknown>,
+                tc.function.name,
+                input,
                 organizationId,
                 userId,
               );
-              toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: result });
+              toolResults.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: result,
+              });
             }
 
             currentMessages = [
               ...currentMessages,
-              { role: "assistant", content: response.content },
-              { role: "user", content: toolResults },
+              response.choices[0].message,
+              ...toolResults,
             ];
 
-            response = await client.messages.create({
-              model: "claude-haiku-4-5-20251001",
+            response = await client.chat.completions.create({
+              model: "gpt-4o",
               max_tokens: 2048,
-              system: systemPrompt,
               tools,
-              messages: currentMessages,
+              messages: [
+                { role: "system", content: systemPrompt },
+                ...currentMessages,
+              ],
             });
           }
 
           // Emit the final text
-          const textContent = response.content.find(
-            (b): b is Anthropic.TextBlock => b.type === "text"
-          );
-          if (textContent) {
+          const text = response.choices[0].message.content;
+          if (text) {
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ text: textContent.text })}\n\n`)
+              encoder.encode(`data: ${JSON.stringify({ text })}\n\n`)
             );
           }
 

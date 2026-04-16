@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,10 +66,13 @@ export async function POST(req: NextRequest) {
       const truncated = csvText.length > MAX_CHARS;
       const content = truncated ? csvText.slice(0, MAX_CHARS) + "\n... [truncated]" : csvText;
 
-      const message = await client.messages.create({
-        model: "claude-sonnet-4-6",
+      const message = await client.chat.completions.create({
+        model: "gpt-4o",
         max_tokens: 4096,
-        system: `You are a data extraction assistant for a property management app.
+        messages: [
+          {
+            role: "system",
+            content: `You are a data extraction assistant for a property management app.
 You will receive the raw content of a tenant ledger or roster exported from any property management platform (Buildium, AppFolio, Cozy, Rentec, spreadsheets, etc.).
 
 Your job is to extract structured tenant records from this data and return ONLY valid JSON — no explanation, no markdown, no code blocks.
@@ -107,7 +110,7 @@ Rules:
 - If a field is missing or unclear, omit it entirely.
 - Deduplicate: if the same tenant appears multiple times (multiple payment rows), merge into one record with paymentHistory.
 - Return [] if no tenant data is found.`,
-        messages: [
+          },
           {
             role: "user",
             content: `Extract all tenant records from this file:\n\n${content}`,
@@ -115,7 +118,7 @@ Rules:
         ],
       });
 
-      const rawText = message.content.find((b) => b.type === "text")?.text ?? "[]";
+      const rawText = message.choices[0].message.content ?? "[]";
 
       let extracted: ExtractedTenant[] = [];
       try {
