@@ -60,16 +60,17 @@ export async function POST(req: NextRequest) {
 
           // Tool use loop — handles multi-step tool chains
           while (response.choices[0].finish_reason === "tool_calls") {
-            const toolCalls = (response.choices[0].message.tool_calls ?? []).filter(
-              (tc): tc is OpenAI.Chat.ChatCompletionMessageToolCall => tc.type === "function"
-            );
+            const rawToolCalls = response.choices[0].message.tool_calls ?? [];
 
             const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = [];
-            for (const tc of toolCalls) {
+            for (const tc of rawToolCalls) {
+              if (tc.type !== "function") continue;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const fn = (tc as any).function as { name: string; arguments: string };
               let input: Record<string, unknown> = {};
-              try { input = JSON.parse(tc.function.arguments); } catch {}
+              try { input = JSON.parse(fn.arguments); } catch {}
               const result = await handleTool(
-                tc.function.name,
+                fn.name,
                 input,
                 organizationId,
                 userId,
