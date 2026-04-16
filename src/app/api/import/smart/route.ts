@@ -173,10 +173,20 @@ Rules:
         if (!rec.firstName || !rec.lastName) { results.skipped++; continue; }
 
         try {
-          // 1. Create or find tenant
-          const existingTenant = rec.email
-            ? await prisma.tenant.findFirst({ where: { organizationId, email: rec.email } })
-            : null;
+          // 1. Create or find tenant — match by email, phone, or full name
+          const existingTenant = await prisma.tenant.findFirst({
+            where: {
+              organizationId,
+              OR: [
+                rec.email ? { email: rec.email } : undefined,
+                rec.phone ? { phone: rec.phone } : undefined,
+                {
+                  firstName: { equals: rec.firstName.trim(), mode: "insensitive" },
+                  lastName: { equals: rec.lastName.trim(), mode: "insensitive" },
+                },
+              ].filter(Boolean) as object[],
+            },
+          });
 
           const tenant = existingTenant ?? await prisma.tenant.create({
             data: {
