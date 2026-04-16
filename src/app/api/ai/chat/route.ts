@@ -60,7 +60,9 @@ export async function POST(req: NextRequest) {
 
           // Tool use loop — handles multi-step tool chains
           while (response.choices[0].finish_reason === "tool_calls") {
-            const toolCalls = response.choices[0].message.tool_calls ?? [];
+            const toolCalls = (response.choices[0].message.tool_calls ?? []).filter(
+              (tc): tc is OpenAI.Chat.ChatCompletionMessageToolCall => tc.type === "function"
+            );
 
             const toolResults: OpenAI.Chat.ChatCompletionToolMessageParam[] = [];
             for (const tc of toolCalls) {
