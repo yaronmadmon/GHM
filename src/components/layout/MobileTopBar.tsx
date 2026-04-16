@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Building2, Menu, X, LogOut, Settings } from "lucide-react";
 import { NotificationBell } from "./NotificationBell";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { signOut } from "next-auth/react";
 import {
@@ -89,7 +90,8 @@ export function MobileTopBar() {
                 })}
               </ul>
             </nav>
-            <div className="p-3 border-t">
+            <div className="p-3 border-t space-y-1">
+              <ThemeToggle variant="menu" />
               <button
                 onClick={() => signOut({ callbackUrl: "/login" })}
                 className="flex items-center gap-3 px-3 py-2.5 w-full rounded-md text-sm font-medium text-foreground/70 hover:bg-muted hover:text-foreground transition-colors"

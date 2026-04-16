@@ -22,6 +22,7 @@ import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NotificationBell } from "./NotificationBell";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface SidebarProps {
   pendingApplications?: number;
@@ -115,11 +116,12 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
         </ul>
       </nav>
 
-      {/* Notification bell + Sign out */}
+      {/* Notification bell + theme toggle + Sign out */}
       <div className="p-2 border-t border-sidebar-border space-y-1">
         <div className={cn("flex", collapsed ? "justify-center" : "px-1")}>
           <NotificationBell collapsed={collapsed} />
         </div>
+        <ThemeToggle collapsed={collapsed} />
         <Button
           variant="ghost"
           size="sm"

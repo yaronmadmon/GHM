@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, DM_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 const dmSans = DM_Sans({
   variable: "--font-sans",
@@ -35,8 +36,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={`${dmSans.variable} ${dmMono.variable} h-full`}>
       <body className="min-h-full bg-background text-foreground antialiased">
-        {children}
-        <Toaster richColors position="top-right" />
+        <ThemeProvider>
+          {children}
+          <Toaster richColors position="top-right" />
+        </ThemeProvider>
       </body>
     </html>
   );
