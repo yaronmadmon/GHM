@@ -117,17 +117,19 @@ Rules:
         } else if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
           try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
-            // Disable worker — not available in serverless
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "";
-            const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
-            const pageTexts: string[] = [];
-            for (let i = 1; i <= doc.numPages; i++) {
-              const page = await doc.getPage(i);
-              const content = await page.getTextContent();
-              pageTexts.push(content.items.map((item: { str: string }) => item.str).join(" "));
-            }
-            textContent = pageTexts.join("\n");
+            const PDFParser = require("pdf2json");
+            textContent = await new Promise<string>((resolve, reject) => {
+              const parser = new PDFParser(null, 1);
+              parser.on("pdfParser_dataError", (e: { parserError: unknown }) => reject(e.parserError));
+              parser.on("pdfParser_dataReady", (data: { Pages?: Array<{ Texts?: Array<{ R?: Array<{ T?: string }> }> }> }) => {
+                const text = (data.Pages ?? [])
+                  .flatMap((p) => p.Texts ?? [])
+                  .map((t) => decodeURIComponent(t.R?.[0]?.T ?? ""))
+                  .join(" ");
+                resolve(text);
+              });
+              parser.parseBuffer(buf);
+            });
           } catch {
             return Response.json(
               { error: "Could not read this PDF — try taking a screenshot of it instead and uploading that." },
