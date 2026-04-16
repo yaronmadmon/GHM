@@ -4,6 +4,9 @@ import { requireOrg } from "@/lib/session";
 import OpenAI from "openai";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
+import * as pdfParseModule from "pdf-parse";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (pdfParseModule as any).default ?? pdfParseModule;
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -49,12 +52,15 @@ export async function POST(req: NextRequest) {
       const file = formData.get("file") as File;
       if (!file) return Response.json({ error: "No file provided" }, { status: 400 });
 
-      // Parse file to CSV text
+      // Parse file to text
       const buf = Buffer.from(await file.arrayBuffer());
       let csvText = "";
 
       if (file.name.endsWith(".csv")) {
         csvText = buf.toString("utf-8");
+      } else if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
+        const parsed = await pdfParse(buf);
+        csvText = parsed.text;
       } else {
         const wb = XLSX.read(buf, { type: "buffer" });
         const ws = wb.Sheets[wb.SheetNames[0]];

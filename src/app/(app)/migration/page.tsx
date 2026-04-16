@@ -304,12 +304,12 @@ export default function MigrationPage() {
                   <p className="text-muted-foreground">or click to browse</p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Supports exports from <span className="font-medium">Buildium</span>, <span className="font-medium">AppFolio</span>, <span className="font-medium">Cozy</span>, <span className="font-medium">Rentec</span>, or any CSV / Excel spreadsheet
+                  Supports exports from <span className="font-medium">Buildium</span>, <span className="font-medium">AppFolio</span>, <span className="font-medium">Cozy</span>, <span className="font-medium">Rentec</span>, or any CSV / Excel / PDF
                 </p>
               </div>
             )}
           </div>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={onFileChange} />
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.pdf" className="hidden" onChange={onFileChange} />
 
           <div className="mt-6">
             <div className="flex items-center gap-3 mb-3">
