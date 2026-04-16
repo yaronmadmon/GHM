@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Building2, Menu, X, LogOut, Settings } from "lucide-react";
 import { NotificationBell } from "./NotificationBell";
+import { GlobalSearchTrigger } from "@/components/GlobalSearch";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { signOut } from "next-auth/react";
@@ -38,6 +39,7 @@ export function MobileTopBar() {
           <Building2 className="h-5 w-5 text-primary" />
           <span className="font-semibold tracking-tight">GHM</span>
         </Link>
+        <GlobalSearchTrigger />
         <NotificationBell side="bottom" />
         <button
           onClick={() => setOpen(true)}

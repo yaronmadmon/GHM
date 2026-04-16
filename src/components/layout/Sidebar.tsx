@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { GlobalSearch } from "@/components/GlobalSearch";
 
 interface SidebarProps {
   pendingApplications?: number;
@@ -75,6 +76,11 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
         >
           <ChevronLeft className={cn("h-4 w-4 transition-transform", collapsed && "rotate-180")} />
         </button>
+      </div>
+
+      {/* Search */}
+      <div className={cn("px-2 py-2 border-b border-sidebar-border", collapsed && "px-1.5")}>
+        <GlobalSearch collapsed={collapsed} />
       </div>
 
       {/* Nav */}
