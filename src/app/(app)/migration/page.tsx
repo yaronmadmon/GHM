@@ -8,12 +8,10 @@ import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Sparkles, Upload, CheckCircle, AlertTriangle,
-  Trash2, ChevronRight, ArrowRight, FileSpreadsheet,
+  Trash2, ChevronRight, ArrowRight, Pencil, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ExtractedTenant } from "@/app/api/import/smart/route";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Phase = "upload" | "extracting" | "review" | "importing" | "done";
 
@@ -26,20 +24,22 @@ interface DoneStats {
   errors: string[];
 }
 
-// ─── Editable Cell ────────────────────────────────────────────────────────────
+// ─── Inline editable field ────────────────────────────────────────────────────
 
-function EditableCell({
+function Field({
+  label,
   value,
   onChange,
-  className = "",
-  placeholder = "—",
   type = "text",
+  placeholder = "—",
+  mono = false,
 }: {
+  label: string;
   value: string | number | undefined | null;
   onChange: (v: string) => void;
-  className?: string;
-  placeholder?: string;
   type?: string;
+  placeholder?: string;
+  mono?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -48,34 +48,36 @@ function EditableCell({
     setDraft(value != null ? String(value) : "");
     setEditing(true);
   }
-
-  function commit() {
-    onChange(draft);
-    setEditing(false);
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type={type}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
-        className={`w-full border-b border-primary bg-primary/5 outline-none px-1 py-0.5 text-sm rounded-sm ${className}`}
-      />
-    );
-  }
+  function commit() { onChange(draft); setEditing(false); }
 
   return (
-    <span
-      onClick={startEdit}
-      title="Click to edit"
-      className={`cursor-text hover:bg-muted/60 rounded px-1 py-0.5 min-w-[32px] inline-block ${className} ${!value ? "text-muted-foreground/50" : ""}`}
-    >
-      {value != null && value !== "" ? String(value) : placeholder}
-    </span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{label}</span>
+      {editing ? (
+        <div className="flex items-center gap-1">
+          <input
+            autoFocus
+            type={type}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+            className="text-sm border-b border-primary bg-primary/5 outline-none px-1 py-0.5 rounded-sm w-full"
+          />
+          <button onClick={commit} className="text-primary"><Check className="h-3 w-3" /></button>
+          <button onClick={() => setEditing(false)} className="text-muted-foreground"><X className="h-3 w-3" /></button>
+        </div>
+      ) : (
+        <button
+          onClick={startEdit}
+          title="Click to edit"
+          className={`text-sm text-left flex items-center gap-1 group hover:text-primary transition-colors ${mono ? "font-mono" : ""} ${!value ? "text-muted-foreground/50 italic" : ""}`}
+        >
+          <span>{value != null && value !== "" ? String(value) : placeholder}</span>
+          <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-50 shrink-0" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -89,29 +91,29 @@ function PaymentHistoryDialog({ record, open, onClose }: { record: ExtractedTena
           <DialogTitle>Payment History — {record.firstName} {record.lastName}</DialogTitle>
         </DialogHeader>
         {!record.paymentHistory?.length ? (
-          <p className="text-sm text-muted-foreground py-4">No payment history found.</p>
+          <p className="text-sm text-muted-foreground py-4">No payment history in this document.</p>
         ) : (
           <div className="overflow-y-auto max-h-80">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Date</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Amount</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Method</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Date</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Amount</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Status</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Method</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {record.paymentHistory.map((p, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-2">{p.date}</td>
-                    <td className="px-3 py-2 font-mono">${p.amount.toLocaleString()}</td>
+                  <tr key={i} className="hover:bg-muted/20">
+                    <td className="px-3 py-2 text-sm">{p.date}</td>
+                    <td className="px-3 py-2 text-sm font-mono">${p.amount.toLocaleString()}</td>
                     <td className="px-3 py-2">
                       <Badge variant={p.status === "paid" ? "default" : p.status === "overdue" ? "destructive" : "secondary"} className="text-xs">
                         {p.status}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2 text-muted-foreground">{p.method || "—"}</td>
+                    <td className="px-3 py-2 text-sm text-muted-foreground">{p.method || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -123,9 +125,105 @@ function PaymentHistoryDialog({ record, open, onClose }: { record: ExtractedTena
   );
 }
 
+// ─── Tenant Card ──────────────────────────────────────────────────────────────
+
+function TenantCard({
+  record,
+  index,
+  isConflict,
+  onUpdate,
+  onRemove,
+  onViewHistory,
+}: {
+  record: ExtractedTenant;
+  index: number;
+  isConflict: boolean;
+  onUpdate: (field: keyof ExtractedTenant, value: string) => void;
+  onRemove: () => void;
+  onViewHistory: () => void;
+}) {
+  return (
+    <div className={`bg-background rounded-2xl border shadow-sm p-5 relative ${isConflict ? "border-yellow-300 bg-yellow-50/30" : ""}`}>
+      {/* Conflict badge */}
+      {isConflict && (
+        <div className="absolute top-3 right-10 flex items-center gap-1 text-xs text-yellow-700 bg-yellow-100 border border-yellow-200 rounded-full px-2 py-0.5">
+          <AlertTriangle className="h-3 w-3" /> Already in system
+        </div>
+      )}
+
+      {/* Remove button */}
+      <button
+        onClick={onRemove}
+        className="absolute top-3 right-3 text-muted-foreground/40 hover:text-destructive transition-colors"
+        title="Remove this tenant"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+
+      {/* Name + contact */}
+      <div className="flex items-start gap-4 mb-4">
+        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
+          {record.firstName?.[0]}{record.lastName?.[0]}
+        </div>
+        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3">
+          <Field label="First name" value={record.firstName} onChange={(v) => onUpdate("firstName", v)} />
+          <Field label="Last name" value={record.lastName} onChange={(v) => onUpdate("lastName", v)} />
+          <Field label="Phone" value={record.phone} onChange={(v) => onUpdate("phone", v)} placeholder="no phone" />
+          <Field label="Email" value={record.email} onChange={(v) => onUpdate("email", v)} placeholder="no email" />
+          {record.notes && (
+            <div className="col-span-2 md:col-span-1">
+              <Field label="Notes" value={record.notes} onChange={(v) => onUpdate("notes", v)} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t pt-4 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+        <div className="col-span-2">
+          <Field label="Property address" value={record.propertyAddress} onChange={(v) => onUpdate("propertyAddress", v)} placeholder="no address" />
+        </div>
+        <Field label="Unit" value={record.unitNumber} onChange={(v) => onUpdate("unitNumber", v)} placeholder="1" />
+        <Field label="City" value={record.city} onChange={(v) => onUpdate("city", v)} placeholder="—" />
+
+        <Field label="Rent / month" value={record.rentAmount ? `$${record.rentAmount.toLocaleString()}` : undefined} onChange={(v) => onUpdate("rentAmount", v.replace(/[$,]/g, ""))} placeholder="—" mono />
+        <Field label="Deposit" value={record.depositAmount ? `$${record.depositAmount.toLocaleString()}` : undefined} onChange={(v) => onUpdate("depositAmount", v.replace(/[$,]/g, ""))} placeholder="—" mono />
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Deposit paid</span>
+          <span className={`text-sm font-medium ${record.depositPaid ? "text-emerald-600" : "text-amber-600"}`}>
+            {record.depositPaid ? "✓ Yes" : "Not yet"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Balance</span>
+          <span className={`text-sm font-mono font-semibold ${!record.balance || record.balance === 0 ? "text-emerald-600" : "text-red-600"}`}>
+            {record.balance != null ? (record.balance === 0 ? "Current" : `$${record.balance.toLocaleString()} owed`) : "—"}
+          </span>
+        </div>
+
+        <Field label="Lease start" value={record.leaseStart} onChange={(v) => onUpdate("leaseStart", v)} placeholder="—" />
+        <Field label="Lease end" value={record.leaseEnd} onChange={(v) => onUpdate("leaseEnd", v)} placeholder="month-to-month" />
+
+        {/* Payment history */}
+        <div className="col-span-2 flex flex-col gap-0.5">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Payment history</span>
+          {record.paymentHistory?.length ? (
+            <button onClick={onViewHistory} className="flex items-center gap-1 text-sm text-primary hover:underline w-fit">
+              {record.paymentHistory.length} transaction{record.paymentHistory.length !== 1 ? "s" : ""} found
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <span className="text-sm text-muted-foreground/50 italic">none</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const CHUNK_SIZE = 15;
+const ACCEPTED = ".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
 
 export default function MigrationPage() {
   const router = useRouter();
@@ -140,8 +238,6 @@ export default function MigrationPage() {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [done, setDone] = useState<DoneStats | null>(null);
   const [historyRow, setHistoryRow] = useState<number | null>(null);
-
-  // ── Upload & Extract ──────────────────────────────────────────────────────
 
   async function handleFile(file: File) {
     setPhase("extracting");
@@ -158,14 +254,13 @@ export default function MigrationPage() {
 
     const data = await res.json();
     if (!data.extracted?.length) {
-      toast.error("No tenant records found. Try including names, addresses, or rent amounts in your data.");
+      toast.error("No tenant records found. Try including names, addresses, or rent amounts.");
       setPhase("upload");
       return;
     }
 
     setTruncated(data.truncated ?? false);
 
-    // Check conflicts
     const emails = data.extracted.map((r: ExtractedTenant) => r.email).filter(Boolean);
     let conflictSet = new Set<string>();
     if (emails.length) {
@@ -203,8 +298,6 @@ export default function MigrationPage() {
     handleFile(file);
   }
 
-  // ── Edit record ───────────────────────────────────────────────────────────
-
   const updateRecord = useCallback((index: number, field: keyof ExtractedTenant, value: string) => {
     setRecords((prev) => prev.map((r, i) => {
       if (i !== index) return r;
@@ -217,17 +310,10 @@ export default function MigrationPage() {
     }));
   }, []);
 
-  function removeRecord(index: number) {
-    setRecords((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  // ── Commit (batched) ──────────────────────────────────────────────────────
-
   async function handleImport() {
     setPhase("importing");
     const total = records.length;
     setProgress({ done: 0, total });
-
     const agg: DoneStats = { tenants: 0, properties: 0, leases: 0, payments: 0, skipped: 0, errors: [] };
 
     for (let i = 0; i < records.length; i += CHUNK_SIZE) {
@@ -255,10 +341,6 @@ export default function MigrationPage() {
     setPhase("done");
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────────────────
-
   return (
     <div className="min-h-screen bg-muted/20">
       {/* Header */}
@@ -267,32 +349,32 @@ export default function MigrationPage() {
         <h1 className="font-semibold text-lg">Migration Center</h1>
         {phase === "review" && (
           <span className="text-sm text-muted-foreground ml-2">
-            {records.length} tenant{records.length !== 1 ? "s" : ""} ready to import
+            Review {records.length} tenant{records.length !== 1 ? "s" : ""} before importing
           </span>
         )}
       </div>
 
-      {/* ── SCREEN 1: Upload ─────────────────────────────────────────────── */}
+      {/* ── SCREEN 1: Upload ─────────────────────────────────────────────────── */}
       {(phase === "upload" || phase === "extracting") && (
         <div className="max-w-2xl mx-auto px-4 py-16">
           <div className="text-center mb-10">
-            <h2 className="text-3xl font-bold mb-3">Bring your data over</h2>
+            <h2 className="text-3xl font-bold mb-3">Bring your tenants over</h2>
             <p className="text-muted-foreground text-lg">
-              Upload a tenant ledger from any platform. Claude reads it and sets everything up automatically — no manual entry.
+              Drop any document — PDF, screenshot, photo, or spreadsheet. AI reads it and sets everything up automatically.
             </p>
           </div>
 
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
-            onClick={() => !phase.startsWith("extract") && fileRef.current?.click()}
+            onClick={() => phase !== "extracting" && fileRef.current?.click()}
             className="border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer hover:bg-muted/40 hover:border-primary/40 transition-all"
           >
             {phase === "extracting" ? (
               <div className="space-y-4">
                 <Sparkles className="h-12 w-12 mx-auto text-primary animate-pulse" />
-                <p className="text-xl font-semibold">Reading your file…</p>
-                <p className="text-muted-foreground">Claude is extracting tenant records, lease terms, and payment history</p>
+                <p className="text-xl font-semibold">Reading your document…</p>
+                <p className="text-muted-foreground">Extracting tenant info, lease terms, and payment history</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -304,12 +386,12 @@ export default function MigrationPage() {
                   <p className="text-muted-foreground">or click to browse</p>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Supports exports from <span className="font-medium">Buildium</span>, <span className="font-medium">AppFolio</span>, <span className="font-medium">Cozy</span>, <span className="font-medium">Rentec</span>, or any CSV / Excel / PDF
+                  Works with <span className="font-medium">PDFs</span>, <span className="font-medium">screenshots</span>, <span className="font-medium">photos</span>, CSV, Excel — from any platform
                 </p>
               </div>
             )}
           </div>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.pdf" className="hidden" onChange={onFileChange} />
+          <input ref={fileRef} type="file" accept={ACCEPTED} className="hidden" onChange={onFileChange} />
 
           <div className="mt-6">
             <div className="flex items-center gap-3 mb-3">
@@ -319,40 +401,36 @@ export default function MigrationPage() {
             </div>
             <textarea
               disabled={phase === "extracting"}
-              placeholder="Paste CSV, spreadsheet rows, or any tenant data here…"
-              rows={5}
+              placeholder="Paste CSV rows, copied spreadsheet data, or any tenant info here…"
+              rows={4}
               className="w-full rounded-xl border bg-background px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 placeholder:text-muted-foreground/60"
               onPaste={(e) => {
                 const text = e.clipboardData.getData("text");
-                if (text.trim()) {
-                  e.preventDefault();
-                  handlePastedText(text);
-                }
+                if (text.trim()) { e.preventDefault(); handlePastedText(text); }
               }}
             />
           </div>
         </div>
       )}
 
-      {/* ── SCREEN 2: Review ─────────────────────────────────────────────── */}
+      {/* ── SCREEN 2: Review (cards) ──────────────────────────────────────────── */}
       {phase === "review" && (
-        <div className="px-4 md:px-6 py-6 max-w-full">
-          {/* Options + actions bar */}
-          <div className="flex flex-wrap items-center gap-4 mb-4">
+        <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+          {/* Options + action bar */}
+          <div className="flex flex-wrap items-center gap-4 bg-background border rounded-xl px-4 py-3 shadow-sm">
             <div className="flex gap-4 text-sm">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={createLeases} onChange={(e) => setCreateLeases(e.target.checked)} className="rounded" />
-                Create properties, units & leases
+                Create properties & leases
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={createPayments} onChange={(e) => setCreatePayments(e.target.checked)} className="rounded" disabled={!createLeases} />
                 Import payment history
               </label>
             </div>
-
             <div className="ml-auto flex gap-2">
               <Button variant="outline" size="sm" onClick={() => { setPhase("upload"); setRecords([]); }}>
-                ← Upload different file
+                ← Upload another
               </Button>
               <Button size="sm" onClick={handleImport} disabled={records.length === 0} className="gap-2">
                 Import {records.length} tenant{records.length !== 1 ? "s" : ""}
@@ -362,144 +440,29 @@ export default function MigrationPage() {
           </div>
 
           {truncated && (
-            <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+            <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              File was very large — only the first portion was analyzed. Split into smaller batches for a full import.
+              File was very large — only the first portion was analyzed. Split into smaller batches for a complete import.
             </div>
           )}
 
-          {conflicts.size > 0 && (
-            <div className="flex items-center gap-2 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 mb-4">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              {conflicts.size} tenant{conflicts.size !== 1 ? "s" : ""} already exist in your system (marked ⚠). They will be skipped on import.
-            </div>
-          )}
-
-          <p className="text-xs text-muted-foreground mb-3">
-            Click any cell to edit. Changes are saved when you press Enter or click away.
+          <p className="text-xs text-muted-foreground px-1">
+            Review each tenant below. Click any value to correct it before importing.
           </p>
 
-          {/* Editable table */}
-          <div className="rounded-xl border bg-background overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b">
-                  <tr>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground w-8">#</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">First Name</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Last Name</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Email</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Phone</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Property Address</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Unit</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Rent/mo</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Deposit</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Balance</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Lease Start</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Lease End</th>
-                    <th className="text-left px-3 py-3 font-medium text-muted-foreground">Payments</th>
-                    <th className="w-8 px-3 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {records.map((r, i) => {
-                    const isConflict = !!(r.email && conflicts.has(r.email));
-                    return (
-                      <tr
-                        key={i}
-                        className={`hover:bg-muted/20 transition-colors ${isConflict ? "border-l-4 border-l-yellow-400 bg-yellow-50/30" : ""}`}
-                      >
-                        <td className="px-3 py-2.5 text-muted-foreground text-xs">{i + 1}</td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell value={r.firstName} onChange={(v) => updateRecord(i, "firstName", v)} />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell value={r.lastName} onChange={(v) => updateRecord(i, "lastName", v)} />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            {isConflict && (
-                              <span title="Already in system" className="text-yellow-500 text-xs shrink-0">⚠</span>
-                            )}
-                            <EditableCell value={r.email} onChange={(v) => updateRecord(i, "email", v)} placeholder="no email" />
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell value={r.phone} onChange={(v) => updateRecord(i, "phone", v)} placeholder="no phone" />
-                        </td>
-                        <td className="px-3 py-2.5 max-w-[180px]">
-                          <EditableCell value={r.propertyAddress} onChange={(v) => updateRecord(i, "propertyAddress", v)} placeholder="no address" />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell value={r.unitNumber} onChange={(v) => updateRecord(i, "unitNumber", v)} placeholder="1" />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell
-                            value={r.rentAmount}
-                            onChange={(v) => updateRecord(i, "rentAmount", v)}
-                            type="number"
-                            placeholder="—"
-                            className="font-mono"
-                          />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {r.depositAmount ? (
-                            <span className={`font-mono text-xs ${r.depositPaid ? "text-emerald-600" : "text-amber-600"}`}>
-                              <EditableCell
-                                value={r.depositAmount}
-                                onChange={(v) => updateRecord(i, "depositAmount", v)}
-                                type="number"
-                                className="font-mono"
-                              />
-                              <span className="ml-1">{r.depositPaid ? "✓" : "unpaid"}</span>
-                            </span>
-                          ) : (
-                            <EditableCell value={r.depositAmount} onChange={(v) => updateRecord(i, "depositAmount", v)} type="number" placeholder="—" className="font-mono" />
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {r.balance != null && r.balance > 0 ? (
-                            <span className="text-red-600 font-mono font-semibold text-xs">${r.balance.toLocaleString()}</span>
-                          ) : r.balance === 0 ? (
-                            <span className="text-emerald-600 text-xs">Current</span>
-                          ) : (
-                            <EditableCell value={r.balance} onChange={(v) => updateRecord(i, "balance", v)} type="number" placeholder="—" className="font-mono" />
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell value={r.leaseStart} onChange={(v) => updateRecord(i, "leaseStart", v)} placeholder="—" />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <EditableCell value={r.leaseEnd} onChange={(v) => updateRecord(i, "leaseEnd", v)} placeholder="ongoing" />
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {r.paymentHistory?.length ? (
-                            <button
-                              onClick={() => setHistoryRow(i)}
-                              className="flex items-center gap-1 text-xs text-primary hover:underline"
-                            >
-                              {r.paymentHistory.length} records
-                              <ChevronRight className="h-3 w-3" />
-                            </button>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <button onClick={() => removeRecord(i)} className="text-muted-foreground hover:text-destructive transition-colors p-1">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {records.map((r, i) => (
+            <TenantCard
+              key={i}
+              index={i}
+              record={r}
+              isConflict={!!(r.email && conflicts.has(r.email))}
+              onUpdate={(field, value) => updateRecord(i, field, value)}
+              onRemove={() => setRecords((prev) => prev.filter((_, idx) => idx !== i))}
+              onViewHistory={() => setHistoryRow(i)}
+            />
+          ))}
 
-          {/* Bottom action bar */}
-          <div className="mt-4 flex justify-end">
+          <div className="flex justify-end pt-2 pb-8">
             <Button onClick={handleImport} disabled={records.length === 0} className="gap-2">
               Import {records.length} tenant{records.length !== 1 ? "s" : ""}
               <ArrowRight className="h-4 w-4" />
@@ -508,36 +471,33 @@ export default function MigrationPage() {
         </div>
       )}
 
-      {/* ── SCREEN: Importing (progress) ─────────────────────────────────── */}
+      {/* ── SCREEN: Importing ─────────────────────────────────────────────────── */}
       {phase === "importing" && (
         <div className="max-w-md mx-auto px-4 py-24 text-center space-y-6">
           <Sparkles className="h-12 w-12 mx-auto text-primary animate-pulse" />
           <div>
-            <p className="text-xl font-semibold mb-1">Importing your data…</p>
-            <p className="text-muted-foreground text-sm">
-              {progress.done} of {progress.total} tenants
-            </p>
+            <p className="text-xl font-semibold mb-1">Saving your data…</p>
+            <p className="text-muted-foreground text-sm">{progress.done} of {progress.total} tenants</p>
           </div>
           <Progress value={progress.total > 0 ? (progress.done / progress.total) * 100 : 0} className="h-2" />
           <p className="text-xs text-muted-foreground">Please don't close this tab</p>
         </div>
       )}
 
-      {/* ── SCREEN 3: Done ───────────────────────────────────────────────── */}
+      {/* ── SCREEN 3: Done ────────────────────────────────────────────────────── */}
       {phase === "done" && done && (
         <div className="max-w-lg mx-auto px-4 py-24 text-center space-y-8">
           <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
             <CheckCircle className="h-9 w-9 text-emerald-600" />
           </div>
-
           <div>
-            <h2 className="text-2xl font-bold mb-2">Migration complete</h2>
-            <p className="text-muted-foreground">Your data is now in GHM.</p>
+            <h2 className="text-2xl font-bold mb-2">All done!</h2>
+            <p className="text-muted-foreground">Your tenants are now in GHM.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-left">
             {[
-              { label: "Tenants created", value: done.tenants, color: "text-primary" },
+              { label: "Tenants added", value: done.tenants, color: "text-primary" },
               { label: "Properties created", value: done.properties, color: "text-blue-600" },
               { label: "Leases created", value: done.leases, color: "text-purple-600" },
               { label: "Payment records", value: done.payments, color: "text-emerald-600" },
@@ -550,7 +510,7 @@ export default function MigrationPage() {
           </div>
 
           {done.errors.length > 0 && (
-            <div className="text-left rounded-lg bg-yellow-50 border border-yellow-200 p-4 space-y-1">
+            <div className="text-left rounded-xl bg-yellow-50 border border-yellow-200 p-4 space-y-1">
               <p className="text-sm font-medium flex items-center gap-1.5 text-yellow-800">
                 <AlertTriangle className="h-4 w-4" /> {done.skipped} record{done.skipped !== 1 ? "s" : ""} skipped
               </p>
@@ -568,7 +528,7 @@ export default function MigrationPage() {
               View Tenants <ArrowRight className="h-4 w-4" />
             </Button>
             <Button variant="outline" onClick={() => router.push("/dashboard")}>
-              Go to Dashboard
+              Dashboard
             </Button>
           </div>
 
@@ -576,12 +536,11 @@ export default function MigrationPage() {
             onClick={() => { setPhase("upload"); setRecords([]); setDone(null); setProgress({ done: 0, total: 0 }); }}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
           >
-            Import another file
+            Import another document
           </button>
         </div>
       )}
 
-      {/* Payment history dialog */}
       {historyRow !== null && records[historyRow] && (
         <PaymentHistoryDialog
           record={records[historyRow]}
@@ -589,9 +548,6 @@ export default function MigrationPage() {
           onClose={() => setHistoryRow(null)}
         />
       )}
-
-      {/* Hidden file input for drag & drop */}
-      <FileSpreadsheet className="hidden" />
     </div>
   );
 }

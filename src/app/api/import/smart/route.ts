@@ -46,41 +46,17 @@ export async function POST(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get("action") ?? "extract";
 
-    // ── EXTRACT: parse file + ask Claude ──────────────────────────────────────
+    // ── EXTRACT: parse file + ask GPT-4o ─────────────────────────────────────
     if (action === "extract") {
       const formData = await req.formData();
       const file = formData.get("file") as File;
       if (!file) return Response.json({ error: "No file provided" }, { status: 400 });
 
-      // Parse file to text
       const buf = Buffer.from(await file.arrayBuffer());
-      let csvText = "";
+      const isImage = file.type.startsWith("image/") ||
+        /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(file.name);
 
-      if (file.name.endsWith(".csv")) {
-        csvText = buf.toString("utf-8");
-      } else if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
-        const parsed = await pdfParse(buf);
-        csvText = parsed.text;
-      } else {
-        const wb = XLSX.read(buf, { type: "buffer" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        csvText = XLSX.utils.sheet_to_csv(ws);
-      }
-
-      // Truncate if very large (Claude context limit protection)
-      const MAX_CHARS = 60_000;
-      const truncated = csvText.length > MAX_CHARS;
-      const content = truncated ? csvText.slice(0, MAX_CHARS) + "\n... [truncated]" : csvText;
-
-      const message = await client.chat.completions.create({
-        model: "gpt-4o",
-        max_tokens: 4096,
-        messages: [
-          {
-            role: "system",
-            content: `You are a data extraction assistant for a property management app. Your job is to find and extract tenant/renter information from ANY kind of input — structured CSV exports, Excel data, copy-pasted tables, emails, plain text notes, lease summaries, or any other format.
-
-Be aggressive: if you can identify a person who appears to be a tenant or renter, extract them. Do NOT return [] unless the content has absolutely no people or rental-related information at all.
+      const extractionPrompt = `You are a data extraction assistant for a property management app. Extract every tenant/renter you can find from this document.
 
 Return ONLY a valid JSON array — no explanation, no markdown, no code fences. Each element:
 {
@@ -108,21 +84,59 @@ Return ONLY a valid JSON array — no explanation, no markdown, no code fences. 
 
 Rules:
 - firstName and lastName are REQUIRED. Split "John Smith" → firstName:"John", lastName:"Smith".
-- If a full name is all you have, still create the record.
-- Strip $ and commas from all money values (rentAmount, depositAmount, balance).
-- depositPaid: true if deposit was received/paid, false otherwise.
-- balance: what the tenant currently owes. 0 if fully current.
-- Convert all dates to YYYY-MM-DD. Infer year if missing (use current or most recent plausible year).
-- Omit any field you cannot determine — never guess an email or phone.
-- Deduplicate: merge multiple rows for the same tenant into one record with paymentHistory.
-- If the input has no people/rental info whatsoever, return [].`,
-          },
-          {
-            role: "user",
-            content: `Extract all tenant records from this file:\n\n${content}`,
-          },
-        ],
-      });
+- Strip $ and commas from all money values.
+- depositPaid: true if deposit was received/paid.
+- balance: amount tenant currently owes. 0 if fully current.
+- All dates → YYYY-MM-DD.
+- Never guess an email or phone — omit if not clearly present.
+- Merge multiple rows for the same tenant into one record with paymentHistory.
+- Return [] only if there are absolutely no people or rental records.`;
+
+      let message;
+      let truncated = false;
+
+      if (isImage) {
+        // Send image directly to GPT-4o vision
+        const base64 = buf.toString("base64");
+        const mimeType = file.type || "image/png";
+        message = await client.chat.completions.create({
+          model: "gpt-4o",
+          max_tokens: 4096,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: extractionPrompt },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" } },
+              ],
+            },
+          ],
+        });
+      } else {
+        // Text-based extraction (CSV, XLSX, PDF, pasted text)
+        let textContent = "";
+        if (file.name.endsWith(".csv") || file.type === "text/csv") {
+          textContent = buf.toString("utf-8");
+        } else if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
+          const parsed = await pdfParse(buf);
+          textContent = parsed.text;
+        } else {
+          const wb = XLSX.read(buf, { type: "buffer" });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          textContent = XLSX.utils.sheet_to_csv(ws);
+        }
+        const MAX_CHARS = 60_000;
+        truncated = textContent.length > MAX_CHARS;
+        const content = truncated ? textContent.slice(0, MAX_CHARS) + "\n... [truncated]" : textContent;
+        message = await client.chat.completions.create({
+          model: "gpt-4o",
+          max_tokens: 4096,
+          messages: [
+            { role: "system", content: extractionPrompt },
+            { role: "user", content: `Extract all tenant records:\n\n${content}` },
+          ],
+        });
+      }
 
       const rawText = message.choices[0].message.content ?? "[]";
 
