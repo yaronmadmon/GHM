@@ -47,7 +47,7 @@ interface Application {
   backgroundCheckNotes: string | null;
   backgroundCheckDate: string | null;
   convertedLeaseId: string | null;
-  property: { name: string } | null;
+  property: { id: string; name: string } | null;
   unit: { unitNumber: string } | null;
   createdAt: string;
   reviewedAt: string | null;
@@ -187,7 +187,12 @@ export default function ApplicationDetailPage() {
         <Link href="/applications"><Button variant="ghost" size="sm" className="gap-1"><ArrowLeft className="h-4 w-4" />Back</Button></Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl md:text-2xl font-semibold">{app.firstName} {app.lastName}</h1>
-          <p className="text-sm text-muted-foreground">{app.property?.name}{app.unit ? ` · Unit ${app.unit.unitNumber}` : ""}</p>
+          <p className="text-sm text-muted-foreground">
+            {app.property ? (
+              <Link href={`/properties/${app.property.id}`} className="hover:text-primary transition-colors">{app.property.name}</Link>
+            ) : null}
+            {app.unit ? ` · Unit ${app.unit.unitNumber}` : ""}
+          </p>
         </div>
         <Badge className={`border shrink-0 capitalize ${STATUS_COLOR[app.status] ?? "bg-muted"}`}>{app.status.replace("_", " ")}</Badge>
       </div>

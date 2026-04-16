@@ -13,6 +13,8 @@ import {
   Wrench,
   ClipboardList,
   TrendingUp,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -36,7 +38,7 @@ async function getDashboardData(organizationId: string) {
       take: 5,
     }),
     prisma.maintenanceRequest.groupBy({ by: ["priority"], where: { organizationId, status: { in: ["open", "in_progress"] } }, _count: true }),
-    prisma.application.count({ where: { organizationId, status: "pending" } }),
+    prisma.application.count({ where: { organizationId, status: { in: ["pending", "documents_requested", "under_review", "screening"] } } }),
     prisma.rentPayment.findMany({ where: { organizationId, periodYear: year, periodMonth: month } }),
     prisma.activityEvent.findMany({
       where: { organizationId },
@@ -82,6 +84,28 @@ export default async function DashboardPage() {
           {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
         </p>
       </div>
+
+      {/* Migration CTA — shown only when no properties exist yet */}
+      {data.properties.total === 0 && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex items-center gap-5 py-5">
+            <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">
+              <Sparkles className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm">Migrating from another platform?</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Upload a tenant ledger from Buildium, AppFolio, Cozy, Rentec, or any spreadsheet — AI sets everything up automatically.
+              </p>
+            </div>
+            <Link href="/migration" className="flex-shrink-0">
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline whitespace-nowrap">
+                Start migration <ArrowRight className="h-4 w-4" />
+              </span>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -136,7 +160,7 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{data.pendingApps}</div>
-            <p className="text-xs text-muted-foreground mt-1">pending review</p>
+            <p className="text-xs text-muted-foreground mt-1">in progress</p>
           </CardContent>
         </Card>
       </div>
@@ -163,8 +187,16 @@ export default async function DashboardPage() {
                 return (
                   <div key={p.id} className="flex items-center justify-between text-sm">
                     <div>
-                      <p className="font-medium">{tenant?.firstName} {tenant?.lastName}</p>
-                      <p className="text-muted-foreground text-xs">{p.lease.unit.property.name}</p>
+                      {tenant ? (
+                        <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
+                          {tenant.firstName} {tenant.lastName}
+                        </Link>
+                      ) : (
+                        <p className="font-medium">Unknown Tenant</p>
+                      )}
+                      <Link href={`/leases/${p.lease.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors">
+                        {p.lease.unit.property.name} · Unit {p.lease.unit.unitNumber}
+                      </Link>
                     </div>
                     <span className="text-destructive font-semibold">{formatCurrency(owed)}</span>
                   </div>
@@ -198,8 +230,16 @@ export default async function DashboardPage() {
                 return (
                   <div key={l.id} className="flex items-center justify-between text-sm">
                     <div>
-                      <p className="font-medium">{tenant?.firstName} {tenant?.lastName}</p>
-                      <p className="text-muted-foreground text-xs">{l.unit.property.name} · Unit {l.unit.unitNumber}</p>
+                      {tenant ? (
+                        <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
+                          {tenant.firstName} {tenant.lastName}
+                        </Link>
+                      ) : (
+                        <p className="font-medium">Unknown Tenant</p>
+                      )}
+                      <Link href={`/leases/${l.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors">
+                        {l.unit.property.name} · Unit {l.unit.unitNumber}
+                      </Link>
                     </div>
                     <Badge variant={days && days <= 30 ? "destructive" : "secondary"} className="text-xs">
                       {days}d

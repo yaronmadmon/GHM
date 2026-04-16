@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
+import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
 
 const updateSchema = z.object({
@@ -67,6 +68,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           metadata: { from: existing.status, to: data.status },
         },
       });
+
+      // Notify the tenant who reported the request
+      if (existing.reportedByTenantId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: existing.reportedByTenantId },
+          select: { portalUserId: true },
+        });
+        if (tenant?.portalUserId) {
+          createNotification({
+            userId: tenant.portalUserId,
+            type: "maintenance_update",
+            title: "Maintenance update",
+            body: `Your request "${existing.title}" is now ${data.status.replace("_", " ")}.`,
+            relatedUrl: `/portal/maintenance`,
+          }).catch(() => {});
+        }
+      }
     }
 
     return Response.json(request);

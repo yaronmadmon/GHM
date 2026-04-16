@@ -5,9 +5,10 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, Plus, User, DollarSign, Copy } from "lucide-react";
+import { ClipboardList, Plus, User, DollarSign } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { InviteButton } from "@/components/applications/InviteButton";
+import { CopyLinkButton } from "@/components/applications/CopyLinkButton";
 
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-700 border-amber-200",
@@ -62,10 +63,8 @@ export default async function ApplicationsPage() {
                   <span className="text-muted-foreground ml-2">· {inv._count.applications} applications</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="text-xs bg-muted px-2 py-1 rounded">{`${process.env.NEXT_PUBLIC_APP_URL ?? ""}/apply/${inv.token}`.slice(0, 50)}…</code>
-                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs">
-                    <Copy className="h-3 w-3" />Copy
-                  </Button>
+                  <code className="text-xs bg-muted px-2 py-1 rounded hidden sm:block">/apply/{inv.token.slice(0, 20)}…</code>
+                  <CopyLinkButton path={`/apply/${inv.token}`} />
                 </div>
               </div>
             ))}

@@ -19,7 +19,11 @@ export async function getPortalSession() {
               lease: {
                 include: {
                   unit: { include: { property: true } },
-                  rentPayments: { orderBy: { dueDate: "desc" }, take: 1 },
+                  rentPayments: {
+                    where: { status: { in: ["pending", "overdue", "partial"] } },
+                    orderBy: { dueDate: "asc" },
+                    take: 1,
+                  },
                   documents: true,
                 },
               },

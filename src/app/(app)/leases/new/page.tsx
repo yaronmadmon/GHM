@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,12 @@ interface Tenant { id: string; firstName: string; lastName: string }
 
 export default function NewLeasePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [properties, setProperties] = useState<Property[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [selectedProperty, setSelectedProperty] = useState("");
+  const [selectedProperty, setSelectedProperty] = useState(searchParams.get("propertyId") ?? "");
   const [form, setForm] = useState({
-    unitId: "",
+    unitId: searchParams.get("unitId") ?? "",
     tenantId: "",
     startDate: "",
     endDate: "",

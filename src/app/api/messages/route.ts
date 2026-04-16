@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
+import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
 
 const createThreadSchema = z.object({
@@ -61,6 +62,15 @@ export async function POST(req: NextRequest) {
       });
       return t;
     });
+
+    // Notify recipient
+    createNotification({
+      userId: data.tenantUserId,
+      type: "message",
+      title: "New message",
+      body: data.subject,
+      relatedUrl: `/messages`,
+    }).catch(() => {});
 
     return Response.json(thread, { status: 201 });
   } catch (err) {

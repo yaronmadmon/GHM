@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, Send, Plus } from "lucide-react";
+import { MessageSquare, Send, Users } from "lucide-react";
+import Link from "next/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -73,9 +74,11 @@ export default function MessagesPage() {
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Messages</h1>
-        <Button size="sm" onClick={() => toast.info("Select a tenant from the Tenants page to start a conversation")}>
-          <Plus className="h-4 w-4 mr-2" /> New Message
-        </Button>
+        <Link href="/tenants">
+          <Button size="sm" className="gap-2">
+            <Users className="h-4 w-4" /> Message a Tenant
+          </Button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-200px)]">
@@ -86,9 +89,12 @@ export default function MessagesPage() {
           </CardHeader>
           <CardContent className="p-0">
             {threads.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2 px-4 text-center">
                 <MessageSquare className="h-8 w-8" />
                 <p className="text-sm">No conversations yet</p>
+                <Link href="/tenants" className="text-xs text-primary hover:underline">
+                  Go to Tenants to start a conversation →
+                </Link>
               </div>
             ) : (
               threads.map((t) => {

@@ -5,8 +5,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { TrendingUp, TrendingDown, Plus, Download } from "lucide-react";
+import { TrendingUp, TrendingDown, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ExportButton } from "@/components/financials/ExportButton";
 
 export default async function FinancialsPage() {
   const session = await auth();
@@ -40,7 +41,7 @@ export default async function FinancialsPage() {
           <p className="text-muted-foreground text-sm mt-0.5">Income & expense tracking</p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" className="gap-2"><Download className="h-4 w-4" />Export</Button>
+          <ExportButton />
           <Link href="/financials/new-transaction">
             <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />Add transaction</Button>
           </Link>

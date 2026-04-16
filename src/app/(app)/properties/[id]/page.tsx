@@ -125,15 +125,20 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
                             <Users className="h-3.5 w-3.5" />
                             {primaryTenant.firstName} {primaryTenant.lastName}
                           </Link>
-                          {activeLease && (
-                            <p className="text-xs text-muted-foreground">
+                          {activeLease ? (
+                            <Link href={`/leases/${activeLease.id}`} className="text-xs text-muted-foreground hover:text-primary transition-colors">
                               {formatCurrency(Number(activeLease.rentAmount))}/mo
                               {lastPayment && ` · ${lastPayment.status}`}
-                            </p>
-                          )}
+                            </Link>
+                          ) : null}
                         </>
                       ) : (
-                        <Badge className={`text-xs border ${STATUS_STYLES[unit.status] ?? ""}`}>{unit.status}</Badge>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge className={`text-xs border ${STATUS_STYLES[unit.status] ?? ""}`}>{unit.status}</Badge>
+                          <Link href={`/leases/new?propertyId=${id}&unitId=${unit.id}`} className="text-xs text-primary hover:underline">
+                            + Add lease
+                          </Link>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -171,7 +176,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             <Wrench className="h-4 w-4" />View maintenance
           </Button>
         </Link>
-        <Link href="/leases/new">
+        <Link href={`/leases/new?propertyId=${id}`}>
           <Button variant="outline" size="sm" className="gap-2">
             <Plus className="h-4 w-4" />Create lease
           </Button>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Building2, Menu, X, LogOut, Settings } from "lucide-react";
+import { NotificationBell } from "./NotificationBell";
 import { cn } from "@/lib/utils";
 import { signOut } from "next-auth/react";
 import {
@@ -36,6 +37,7 @@ export function MobileTopBar() {
           <Building2 className="h-5 w-5 text-primary" />
           <span className="font-semibold tracking-tight">GHM</span>
         </Link>
+        <NotificationBell side="bottom" />
         <button
           onClick={() => setOpen(true)}
           className="p-2 rounded-md hover:bg-muted transition-colors"

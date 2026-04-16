@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
+import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
 
 const replySchema = z.object({
@@ -71,6 +72,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         data: { lastMessageAt: new Date() },
       }),
     ]);
+
+    // Notify recipient
+    createNotification({
+      userId: data.recipientId,
+      type: "message",
+      title: "New message",
+      body: thread.subject,
+      relatedUrl: `/messages`,
+    }).catch(() => {});
 
     return Response.json(message, { status: 201 });
   } catch (err) {

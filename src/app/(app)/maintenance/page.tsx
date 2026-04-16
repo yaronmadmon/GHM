@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Wrench, Plus, MessageSquare } from "lucide-react";
+import { Wrench, Plus, MessageSquare, X } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -22,12 +22,18 @@ const STATUS_STYLES: Record<string, string> = {
   cancelled: "bg-muted text-muted-foreground",
 };
 
-export default async function MaintenancePage() {
+export default async function MaintenancePage({ searchParams }: { searchParams: Promise<{ property?: string }> }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
+  const { property: propertyFilter } = await searchParams;
+
   const requests = await prisma.maintenanceRequest.findMany({
-    where: { organizationId: session.user.organizationId, status: { not: "cancelled" } },
+    where: {
+      organizationId: session.user.organizationId,
+      status: { not: "cancelled" },
+      ...(propertyFilter ? { propertyId: propertyFilter } : {}),
+    },
     include: {
       property: true,
       unit: true,
@@ -50,6 +56,16 @@ export default async function MaintenancePage() {
           <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />New</Button>
         </Link>
       </div>
+
+      {propertyFilter && requests[0] && (
+        <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg px-3 py-2">
+          <span className="text-muted-foreground">Filtered by property:</span>
+          <span className="font-medium">{requests[0].property.name}</span>
+          <Link href="/maintenance" className="ml-auto text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </Link>
+        </div>
+      )}
 
       {requests.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-xl">
@@ -108,7 +124,12 @@ export default async function MaintenancePage() {
                       <Link href={`/maintenance/${r.id}`} className="font-medium hover:text-primary">{r.title}</Link>
                       {r.category && <p className="text-xs text-muted-foreground capitalize">{r.category}</p>}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.property.name}{r.unit ? ` · ${r.unit.unitNumber}` : ""}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      <Link href={`/properties/${r.property.id}`} className="hover:text-primary transition-colors">
+                        {r.property.name}
+                      </Link>
+                      {r.unit ? ` · ${r.unit.unitNumber}` : ""}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge className={`text-xs border ${PRIORITY_STYLES[r.priority] ?? ""}`}>{r.priority}</Badge>
                     </td>

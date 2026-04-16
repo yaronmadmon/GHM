@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Wrench, MessageSquare, Send } from "lucide-react";
+import { ArrowLeft, Wrench, MessageSquare, Send, ExternalLink } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -29,28 +29,40 @@ const STATUS_STYLES: Record<string, string> = {
 
 const STATUSES = ["open", "in_progress", "pending_parts", "completed", "cancelled"];
 
+interface Vendor { id: string; name: string; trade?: string | null }
+
 export default function MaintenanceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [request, setRequest] = useState<any>(null);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [comment, setComment] = useState("");
   const [posting, setPosting] = useState(false);
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     fetch(`/api/maintenance/${id}`).then((r) => r.json()).then(setRequest).catch(() => {});
+    fetch("/api/vendors").then((r) => r.json()).then(setVendors).catch(() => {});
   }, [id]);
 
-  async function updateStatus(status: string) {
+  async function updateField(patch: Record<string, unknown>) {
     setUpdating(true);
     const res = await fetch(`/api/maintenance/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(patch),
     });
     setUpdating(false);
     if (!res.ok) { toast.error("Failed to update"); return; }
-    setRequest((r: any) => ({ ...r, status }));
-    toast.success("Status updated");
+    setRequest((r: any) => ({ ...r, ...patch }));
+    toast.success("Updated");
+  }
+
+  function updateStatus(status: string) { return updateField({ status }); }
+  function updateVendor(vendorId: string) {
+    const vendor = vendors.find((v) => v.id === vendorId) ?? null;
+    updateField({ assignedVendorId: vendorId || null }).then(() => {
+      setRequest((r: any) => ({ ...r, assignedVendor: vendor }));
+    });
   }
 
   async function postComment(e: React.FormEvent) {
@@ -114,7 +126,23 @@ export default function MaintenanceDetailPage() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-muted-foreground w-24 shrink-0">Vendor</span>
-            <span>{request.assignedVendor?.name ?? "—"}</span>
+            <Select
+              value={request.assignedVendor?.id ?? "__none"}
+              onValueChange={(v) => updateVendor(v === "__none" ? "" : v)}
+              disabled={updating}
+            >
+              <SelectTrigger className="h-8 w-52">
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Unassigned</SelectItem>
+                {vendors.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}{v.trade ? ` · ${v.trade}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {request.estimatedCost && (
             <div className="flex items-center gap-3">
@@ -130,7 +158,14 @@ export default function MaintenanceDetailPage() {
           )}
           <div className="flex items-center gap-3">
             <span className="text-muted-foreground w-24 shrink-0">Reported by</span>
-            <span>{request.reportedByTenant ? `${request.reportedByTenant.firstName} ${request.reportedByTenant.lastName}` : "Landlord"}</span>
+            {request.reportedByTenant ? (
+              <Link href={`/tenants/${request.reportedByTenant.id}`} className="text-primary hover:underline flex items-center gap-1">
+                {request.reportedByTenant.firstName} {request.reportedByTenant.lastName}
+                <ExternalLink className="h-3 w-3" />
+              </Link>
+            ) : (
+              <span>Landlord</span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-muted-foreground w-24 shrink-0">Created</span>

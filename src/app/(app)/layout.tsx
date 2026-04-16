@@ -11,7 +11,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const [pendingApps, unreadMsgs] = await Promise.all([
     prisma.application.count({
-      where: { organizationId: session.user.organizationId, status: "pending" },
+      where: { organizationId: session.user.organizationId, status: { in: ["pending", "documents_requested", "under_review", "screening"] } },
     }),
     prisma.message.count({
       where: { recipientId: session.user.id, isRead: false },

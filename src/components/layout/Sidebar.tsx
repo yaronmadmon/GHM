@@ -16,10 +16,12 @@ import {
   LogOut,
   ChevronLeft,
   MessageSquare,
+  HardHat,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { NotificationBell } from "./NotificationBell";
 
 interface SidebarProps {
   pendingApplications?: number;
@@ -35,6 +37,7 @@ const navItems = [
   { href: "/leases", label: "Leases", icon: FileText },
   { href: "/rent", label: "Rent", icon: DollarSign },
   { href: "/maintenance", label: "Maintenance", icon: Wrench },
+  { href: "/vendors", label: "Vendors", icon: HardHat },
   { href: "/financials", label: "Financials", icon: ArrowUpDown },
   { href: "/applications", label: "Applications", icon: ClipboardList, badgeKey: "applications" },
   { href: "/messages", label: "Messages", icon: MessageSquare, badgeKey: "messages" },
@@ -112,8 +115,11 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
         </ul>
       </nav>
 
-      {/* Sign out */}
-      <div className="p-2 border-t border-sidebar-border">
+      {/* Notification bell + Sign out */}
+      <div className="p-2 border-t border-sidebar-border space-y-1">
+        <div className={cn("flex", collapsed ? "justify-center" : "px-1")}>
+          <NotificationBell collapsed={collapsed} />
+        </div>
         <Button
           variant="ghost"
           size="sm"

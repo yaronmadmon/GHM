@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -21,8 +22,8 @@ const STATUS_STYLES: Record<string, string> = {
 
 interface BulkItem {
   leaseId: string;
-  unit: { id: string; unitNumber: string; property: { name: string } };
-  tenants: { firstName: string; lastName: string }[];
+  unit: { id: string; unitNumber: string; property: { id: string; name: string } };
+  tenants: { id: string; firstName: string; lastName: string }[];
   rentAmount: string;
   payment: { id: string; amountPaid: string; amountDue: string; status: string } | null;
   status: string;
@@ -122,10 +123,16 @@ export default function RentPage() {
             {items.map((item) => (
               <div key={item.leaseId} className="rounded-lg border p-4 flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-medium text-sm truncate">
-                    {item.tenants[0] ? `${item.tenants[0].firstName} ${item.tenants[0].lastName}` : "—"}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">{item.unit.property.name} · {item.unit.unitNumber}</p>
+                  {item.tenants[0] ? (
+                    <Link href={`/tenants/${item.tenants[0].id}`} className="font-medium text-sm truncate block hover:text-primary transition-colors">
+                      {item.tenants[0].firstName} {item.tenants[0].lastName}
+                    </Link>
+                  ) : (
+                    <p className="font-medium text-sm truncate">—</p>
+                  )}
+                  <Link href={`/leases/${item.leaseId}`} className="text-xs text-muted-foreground truncate hover:text-primary transition-colors block">
+                    {item.unit.property.name} · Unit {item.unit.unitNumber}
+                  </Link>
                   <div className="flex items-center gap-2 mt-1.5">
                     <Badge className={`text-xs border ${STATUS_STYLES[item.status] ?? ""}`}>
                       {item.status.replace("_", " ")}
@@ -160,9 +167,17 @@ export default function RentPage() {
                 {items.map((item) => (
                   <tr key={item.leaseId} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">
-                      {item.tenants[0] ? `${item.tenants[0].firstName} ${item.tenants[0].lastName}` : "—"}
+                      {item.tenants[0] ? (
+                        <Link href={`/tenants/${item.tenants[0].id}`} className="hover:text-primary transition-colors">
+                          {item.tenants[0].firstName} {item.tenants[0].lastName}
+                        </Link>
+                      ) : "—"}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{item.unit.property.name} · {item.unit.unitNumber}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      <Link href={`/leases/${item.leaseId}`} className="hover:text-primary transition-colors">
+                        {item.unit.property.name} · Unit {item.unit.unitNumber}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-right font-mono">{formatCurrency(parseFloat(String(item.rentAmount)))}</td>
                     <td className="px-4 py-3 text-right font-mono">
                       {item.payment ? formatCurrency(parseFloat(String(item.payment.amountPaid))) : "—"}

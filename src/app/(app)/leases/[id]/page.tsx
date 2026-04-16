@@ -137,7 +137,16 @@ export default function LeaseDetailPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 text-sm">
-          <div><p className="text-muted-foreground text-xs">Property</p><p className="font-medium">{lease.unit?.property?.name}</p></div>
+          <div>
+            <p className="text-muted-foreground text-xs">Property</p>
+            {lease.unit?.property?.id ? (
+              <Link href={`/properties/${lease.unit.property.id}`} className="font-medium text-primary hover:underline">
+                {lease.unit.property.name}
+              </Link>
+            ) : (
+              <p className="font-medium">{lease.unit?.property?.name ?? "—"}</p>
+            )}
+          </div>
           <div><p className="text-muted-foreground text-xs">Unit</p><p className="font-medium">{lease.unit?.unitNumber}</p></div>
           <div><p className="text-muted-foreground text-xs">Start Date</p><p>{formatDate(lease.startDate)}</p></div>
           <div><p className="text-muted-foreground text-xs">End Date</p><p>{lease.endDate ? formatDate(lease.endDate) : "Month-to-month"}</p></div>

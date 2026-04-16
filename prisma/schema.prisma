@@ -192,6 +192,7 @@ model Lease {
   depositPaidAt   DateTime?
   status              String    @default("active") // active | expired | terminated | pending
   leaseType           String    @default("fixed") // fixed | month_to_month
+  paymentDueDay       Int       @default(1) // day of month rent is due (1-28)
   lateFeeAmount       Decimal?  @db.Decimal(10, 2)
   lateFeGraceDays     Int       @default(5)
   notes               String?
@@ -475,7 +476,7 @@ model Application {
   inviteId       String?
   propertyId     String
   unitId         String?
-  status         String   @default("pending") // pending | approved | denied
+  status         String   @default("pending") // pending | documents_requested | under_review | screening | approved | denied
 
   // Personal info
   firstName   String

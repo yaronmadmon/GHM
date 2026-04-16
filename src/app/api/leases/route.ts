@@ -14,6 +14,7 @@ const createSchema = z.object({
   depositPaid: z.boolean().default(false),
   status: z.enum(["active", "expired", "terminated", "pending"]).default("active"),
   leaseType: z.enum(["fixed", "month_to_month"]).default("fixed"),
+  paymentDueDay: z.number().int().min(1).max(28).default(1),
   lateFeeAmount: z.number().optional(),
   lateFeGraceDays: z.number().int().default(5),
   notes: z.string().optional(),
