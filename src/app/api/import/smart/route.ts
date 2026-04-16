@@ -72,12 +72,11 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: "system",
-            content: `You are a data extraction assistant for a property management app.
-You will receive the raw content of a tenant ledger or roster exported from any property management platform (Buildium, AppFolio, Cozy, Rentec, spreadsheets, etc.).
+            content: `You are a data extraction assistant for a property management app. Your job is to find and extract tenant/renter information from ANY kind of input — structured CSV exports, Excel data, copy-pasted tables, emails, plain text notes, lease summaries, or any other format.
 
-Your job is to extract structured tenant records from this data and return ONLY valid JSON — no explanation, no markdown, no code blocks.
+Be aggressive: if you can identify a person who appears to be a tenant or renter, extract them. Do NOT return [] unless the content has absolutely no people or rental-related information at all.
 
-Return a JSON array where each element has this shape (omit fields you cannot find):
+Return ONLY a valid JSON array — no explanation, no markdown, no code fences. Each element:
 {
   "firstName": string,
   "lastName": string,
@@ -102,14 +101,15 @@ Return a JSON array where each element has this shape (omit fields you cannot fi
 }
 
 Rules:
-- firstName and lastName are required for every record. Split full names if needed.
-- rentAmount, depositAmount, and balance must be plain numbers (strip $, commas).
-- depositPaid: true if the deposit has been received, false or omit if not.
-- balance: the total amount the tenant currently owes (outstanding balance). 0 if fully current.
-- Dates must be YYYY-MM-DD format.
-- If a field is missing or unclear, omit it entirely.
-- Deduplicate: if the same tenant appears multiple times (multiple payment rows), merge into one record with paymentHistory.
-- Return [] if no tenant data is found.`,
+- firstName and lastName are REQUIRED. Split "John Smith" → firstName:"John", lastName:"Smith".
+- If a full name is all you have, still create the record.
+- Strip $ and commas from all money values (rentAmount, depositAmount, balance).
+- depositPaid: true if deposit was received/paid, false otherwise.
+- balance: what the tenant currently owes. 0 if fully current.
+- Convert all dates to YYYY-MM-DD. Infer year if missing (use current or most recent plausible year).
+- Omit any field you cannot determine — never guess an email or phone.
+- Deduplicate: merge multiple rows for the same tenant into one record with paymentHistory.
+- If the input has no people/rental info whatsoever, return [].`,
           },
           {
             role: "user",

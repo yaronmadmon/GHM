@@ -158,7 +158,7 @@ export default function MigrationPage() {
 
     const data = await res.json();
     if (!data.extracted?.length) {
-      toast.error("No tenant records found. Make sure the file contains tenant data.");
+      toast.error("No tenant records found. Try including names, addresses, or rent amounts in your data.");
       setPhase("upload");
       return;
     }
