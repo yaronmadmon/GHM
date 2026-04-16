@@ -197,6 +197,12 @@ export default function MigrationPage() {
     e.target.value = "";
   }
 
+  function handlePastedText(text: string) {
+    if (!text.trim()) return;
+    const file = new File([text], "pasted.csv", { type: "text/csv" });
+    handleFile(file);
+  }
+
   // ── Edit record ───────────────────────────────────────────────────────────
 
   const updateRecord = useCallback((index: number, field: keyof ExtractedTenant, value: string) => {
@@ -304,6 +310,27 @@ export default function MigrationPage() {
             )}
           </div>
           <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={onFileChange} />
+
+          <div className="mt-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground">or paste data directly</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+            <textarea
+              disabled={phase === "extracting"}
+              placeholder="Paste CSV, spreadsheet rows, or any tenant data here…"
+              rows={5}
+              className="w-full rounded-xl border bg-background px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 placeholder:text-muted-foreground/60"
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                if (text.trim()) {
+                  e.preventDefault();
+                  handlePastedText(text);
+                }
+              }}
+            />
+          </div>
         </div>
       )}
 
