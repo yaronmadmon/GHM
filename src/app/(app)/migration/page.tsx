@@ -342,8 +342,7 @@ export default function MigrationPage() {
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
-            onClick={() => !isProcessing && fileRef.current?.click()}
-            className="border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer hover:bg-muted/40 hover:border-primary/40 transition-all"
+            className="border-2 border-dashed rounded-2xl p-10 text-center hover:bg-muted/40 hover:border-primary/40 transition-all"
           >
             {isProcessing ? (
               <div className="space-y-5">
@@ -355,17 +354,23 @@ export default function MigrationPage() {
                 <p className="text-xs text-muted-foreground">You can navigate away — we'll notify you when it's ready</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
                   <Upload className="h-7 w-7 text-primary" />
                 </div>
                 <div>
                   <p className="text-xl font-semibold mb-1">Drop your file here</p>
-                  <p className="text-muted-foreground">or click to browse</p>
+                  <p className="text-muted-foreground text-sm">PDF, screenshot, photo, CSV, or Excel</p>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Works with <span className="font-medium">PDFs</span>, <span className="font-medium">screenshots</span>, <span className="font-medium">photos</span>, CSV, Excel — from any platform
-                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Upload className="h-4 w-4" />
+                  Choose file
+                </Button>
               </div>
             )}
           </div>
