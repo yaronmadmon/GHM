@@ -174,34 +174,30 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             <CardContent className="p-0">
               <div className="divide-y">
                 {tenants.map(({ tenant, unitNumber, leaseId, rentAmount, lastPayment }) => (
-                  <Link
-                    key={tenant.id}
-                    href={`/tenants/${tenant.id}`}
-                    className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors group"
-                  >
+                  <div key={tenant.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
                     <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
                       {tenant.firstName[0]}{tenant.lastName[0]}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm group-hover:text-primary transition-colors">
+                      <Link href={`/tenants/${tenant.id}`} className="font-medium text-sm hover:text-primary transition-colors block">
                         {tenant.firstName} {tenant.lastName}
-                      </p>
+                      </Link>
                       <p className="text-xs text-muted-foreground">Unit {unitNumber} · {formatCurrency(Number(rentAmount))}/mo</p>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 space-y-1">
                       {lastPayment && (
                         <Badge
                           variant={lastPayment.status === "paid" ? "secondary" : lastPayment.status === "overdue" ? "destructive" : "outline"}
-                          className="text-xs"
+                          className="text-xs block"
                         >
                           {lastPayment.status}
                         </Badge>
                       )}
-                      <Link href={`/leases/${leaseId}`} onClick={(e) => e.stopPropagation()} className="block text-xs text-muted-foreground hover:text-primary mt-0.5 transition-colors">
+                      <Link href={`/leases/${leaseId}`} className="text-xs text-muted-foreground hover:text-primary transition-colors block">
                         View lease
                       </Link>
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             </CardContent>
