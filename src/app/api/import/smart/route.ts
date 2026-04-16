@@ -4,9 +4,6 @@ import { requireOrg } from "@/lib/session";
 import OpenAI from "openai";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
-import * as pdfParseModule from "pdf-parse";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const pdfParse: (buf: Buffer) => Promise<{ text: string }> = (pdfParseModule as any).default ?? pdfParseModule;
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -118,8 +115,23 @@ Rules:
         if (file.name.endsWith(".csv") || file.type === "text/csv") {
           textContent = buf.toString("utf-8");
         } else if (file.name.endsWith(".pdf") || file.type === "application/pdf") {
-          const parsed = await pdfParse(buf);
-          textContent = parsed.text;
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const pdfParse = require("pdf-parse") as (b: Buffer) => Promise<{ text: string }>;
+            const parsed = await pdfParse(buf);
+            textContent = parsed.text;
+          } catch {
+            return Response.json(
+              { error: "Could not read this PDF — try taking a screenshot of it instead and uploading that." },
+              { status: 422 }
+            );
+          }
+          if (!textContent?.trim()) {
+            return Response.json(
+              { error: "This PDF appears to be image-only (scanned). Take a screenshot and upload the image instead." },
+              { status: 422 }
+            );
+          }
         } else {
           const wb = XLSX.read(buf, { type: "buffer" });
           const ws = wb.Sheets[wb.SheetNames[0]];

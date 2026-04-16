@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +11,10 @@ import {
   Trash2, ChevronRight, ArrowRight, Pencil, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useMigrationContext } from "@/contexts/MigrationContext";
 import type { ExtractedTenant } from "@/app/api/import/smart/route";
 
-type Phase = "upload" | "extracting" | "review" | "importing" | "done";
+type CommitPhase = "review" | "importing" | "done";
 
 interface DoneStats {
   tenants: number;
@@ -24,15 +25,21 @@ interface DoneStats {
   errors: string[];
 }
 
+const CHUNK_SIZE = 15;
+const ACCEPTED = ".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
+
+const PROGRESS_MESSAGES = [
+  "Uploading your document…",
+  "Reading the document…",
+  "Extracting tenant data…",
+  "Checking for details…",
+  "Almost ready…",
+];
+
 // ─── Inline editable field ────────────────────────────────────────────────────
 
 function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder = "—",
-  mono = false,
+  label, value, onChange, type = "text", placeholder = "—", mono = false,
 }: {
   label: string;
   value: string | number | undefined | null;
@@ -44,10 +51,7 @@ function Field({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
-  function startEdit() {
-    setDraft(value != null ? String(value) : "");
-    setEditing(true);
-  }
+  function startEdit() { setDraft(value != null ? String(value) : ""); setEditing(true); }
   function commit() { onChange(draft); setEditing(false); }
 
   return (
@@ -56,9 +60,7 @@ function Field({
       {editing ? (
         <div className="flex items-center gap-1">
           <input
-            autoFocus
-            type={type}
-            value={draft}
+            autoFocus type={type} value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
             onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
@@ -69,8 +71,7 @@ function Field({
         </div>
       ) : (
         <button
-          onClick={startEdit}
-          title="Click to edit"
+          onClick={startEdit} title="Click to edit"
           className={`text-sm text-left flex items-center gap-1 group hover:text-primary transition-colors ${mono ? "font-mono" : ""} ${!value ? "text-muted-foreground/50 italic" : ""}`}
         >
           <span>{value != null && value !== "" ? String(value) : placeholder}</span>
@@ -127,40 +128,24 @@ function PaymentHistoryDialog({ record, open, onClose }: { record: ExtractedTena
 
 // ─── Tenant Card ──────────────────────────────────────────────────────────────
 
-function TenantCard({
-  record,
-  index,
-  isConflict,
-  onUpdate,
-  onRemove,
-  onViewHistory,
-}: {
-  record: ExtractedTenant;
-  index: number;
+function TenantCard({ record, isConflict, onUpdate, onRemove, onViewHistory }: {
+  record: ExtractedTenant & { _conflict?: boolean };
   isConflict: boolean;
   onUpdate: (field: keyof ExtractedTenant, value: string) => void;
   onRemove: () => void;
   onViewHistory: () => void;
 }) {
   return (
-    <div className={`bg-background rounded-2xl border shadow-sm p-5 relative ${isConflict ? "border-yellow-300 bg-yellow-50/30" : ""}`}>
-      {/* Conflict badge */}
+    <div className={`bg-background rounded-2xl border shadow-sm p-5 relative ${isConflict ? "border-yellow-300 bg-yellow-50/30 dark:bg-yellow-900/10" : ""}`}>
       {isConflict && (
-        <div className="absolute top-3 right-10 flex items-center gap-1 text-xs text-yellow-700 bg-yellow-100 border border-yellow-200 rounded-full px-2 py-0.5">
+        <div className="absolute top-3 right-10 flex items-center gap-1 text-xs text-yellow-700 bg-yellow-100 dark:bg-yellow-900/50 dark:text-yellow-300 border border-yellow-200 rounded-full px-2 py-0.5">
           <AlertTriangle className="h-3 w-3" /> Already in system
         </div>
       )}
-
-      {/* Remove button */}
-      <button
-        onClick={onRemove}
-        className="absolute top-3 right-3 text-muted-foreground/40 hover:text-destructive transition-colors"
-        title="Remove this tenant"
-      >
+      <button onClick={onRemove} className="absolute top-3 right-3 text-muted-foreground/40 hover:text-destructive transition-colors" title="Remove">
         <Trash2 className="h-4 w-4" />
       </button>
 
-      {/* Name + contact */}
       <div className="flex items-start gap-4 mb-4">
         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
           {record.firstName?.[0]}{record.lastName?.[0]}
@@ -170,11 +155,7 @@ function TenantCard({
           <Field label="Last name" value={record.lastName} onChange={(v) => onUpdate("lastName", v)} />
           <Field label="Phone" value={record.phone} onChange={(v) => onUpdate("phone", v)} placeholder="no phone" />
           <Field label="Email" value={record.email} onChange={(v) => onUpdate("email", v)} placeholder="no email" />
-          {record.notes && (
-            <div className="col-span-2 md:col-span-1">
-              <Field label="Notes" value={record.notes} onChange={(v) => onUpdate("notes", v)} />
-            </div>
-          )}
+          {record.notes && <div className="col-span-2 md:col-span-1"><Field label="Notes" value={record.notes} onChange={(v) => onUpdate("notes", v)} /></div>}
         </div>
       </div>
 
@@ -203,7 +184,6 @@ function TenantCard({
         <Field label="Lease start" value={record.leaseStart} onChange={(v) => onUpdate("leaseStart", v)} placeholder="—" />
         <Field label="Lease end" value={record.leaseEnd} onChange={(v) => onUpdate("leaseEnd", v)} placeholder="month-to-month" />
 
-        {/* Payment history */}
         <div className="col-span-2 flex flex-col gap-0.5">
           <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Payment history</span>
           {record.paymentHistory?.length ? (
@@ -222,80 +202,59 @@ function TenantCard({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const CHUNK_SIZE = 15;
-const ACCEPTED = ".csv,.xlsx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
-
 export default function MigrationPage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const ctx = useMigrationContext();
 
-  const [phase, setPhase] = useState<Phase>("upload");
-  const [records, setRecords] = useState<ExtractedTenant[]>([]);
-  const [conflicts, setConflicts] = useState<Set<string>>(new Set());
+  // Local state only for the review → import → done flow
+  const [commitPhase, setCommitPhase] = useState<CommitPhase>("review");
+  const [records, setRecords] = useState<(ExtractedTenant & { _conflict?: boolean })[]>([]);
   const [createLeases, setCreateLeases] = useState(true);
   const [createPayments, setCreatePayments] = useState(true);
-  const [truncated, setTruncated] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [done, setDone] = useState<DoneStats | null>(null);
   const [historyRow, setHistoryRow] = useState<number | null>(null);
 
-  async function handleFile(file: File) {
-    setPhase("extracting");
-    const fd = new FormData();
-    fd.append("file", file);
+  // Cycling progress message index
+  const [msgIdx, setMsgIdx] = useState(0);
+  useEffect(() => {
+    if (ctx.status !== "processing") { setMsgIdx(0); return; }
+    const id = setInterval(() => setMsgIdx((i) => (i + 1) % PROGRESS_MESSAGES.length), 3000);
+    return () => clearInterval(id);
+  }, [ctx.status]);
 
-    const res = await fetch("/api/import/smart?action=extract", { method: "POST", body: fd });
-    if (!res.ok) {
-      const d = await res.json();
-      toast.error(d.error ?? "Failed to read file");
-      setPhase("upload");
-      return;
+  // When context finishes, load records into local state for review
+  useEffect(() => {
+    if (ctx.status === "done" && ctx.records.length) {
+      setRecords(ctx.records as (ExtractedTenant & { _conflict?: boolean })[]);
+      setCommitPhase("review");
     }
+  }, [ctx.status, ctx.records]);
 
-    const data = await res.json();
-    if (!data.extracted?.length) {
-      toast.error("No tenant records found. Try including names, addresses, or rent amounts.");
-      setPhase("upload");
-      return;
-    }
-
-    setTruncated(data.truncated ?? false);
-
-    const emails = data.extracted.map((r: ExtractedTenant) => r.email).filter(Boolean);
-    let conflictSet = new Set<string>();
-    if (emails.length) {
-      const cr = await fetch("/api/import/smart?action=check-conflicts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails }),
-      });
-      if (cr.ok) {
-        const cd = await cr.json();
-        conflictSet = new Set<string>(cd.existing ?? []);
-      }
-    }
-
-    setRecords(data.extracted);
-    setConflicts(conflictSet);
-    setPhase("review");
+  function startNew() {
+    ctx.clearResult();
+    setRecords([]);
+    setDone(null);
+    setCommitPhase("review");
+    setProgress({ done: 0, total: 0 });
   }
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) ctx.startExtraction(file);
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) ctx.startExtraction(file);
     e.target.value = "";
   }
 
   function handlePastedText(text: string) {
     if (!text.trim()) return;
-    const file = new File([text], "pasted.csv", { type: "text/csv" });
-    handleFile(file);
+    ctx.startExtraction(new File([text], "pasted.csv", { type: "text/csv" }));
   }
 
   const updateRecord = useCallback((index: number, field: keyof ExtractedTenant, value: string) => {
@@ -311,7 +270,7 @@ export default function MigrationPage() {
   }, []);
 
   async function handleImport() {
-    setPhase("importing");
+    setCommitPhase("importing");
     const total = records.length;
     setProgress({ done: 0, total });
     const agg: DoneStats = { tenants: 0, properties: 0, leases: 0, payments: 0, skipped: 0, errors: [] };
@@ -338,8 +297,18 @@ export default function MigrationPage() {
     }
 
     setDone(agg);
-    setPhase("done");
+    setCommitPhase("done");
+    ctx.clearResult();
   }
+
+  // ── Determine what screen to show ──────────────────────────────────────────
+
+  const isProcessing = ctx.status === "processing";
+  const hasRecords = records.length > 0 && ctx.status !== "idle";
+  const showUpload = !isProcessing && !hasRecords && commitPhase !== "done";
+  const showReview = hasRecords && commitPhase === "review";
+  const showImporting = commitPhase === "importing";
+  const showDone = commitPhase === "done" && done != null;
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -347,15 +316,21 @@ export default function MigrationPage() {
       <div className="bg-background border-b px-4 md:px-8 h-14 flex items-center gap-3">
         <Sparkles className="h-5 w-5 text-primary" />
         <h1 className="font-semibold text-lg">Migration Center</h1>
-        {phase === "review" && (
+        {showReview && (
           <span className="text-sm text-muted-foreground ml-2">
             Review {records.length} tenant{records.length !== 1 ? "s" : ""} before importing
+          </span>
+        )}
+        {isProcessing && (
+          <span className="text-sm text-muted-foreground ml-2 flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse inline-block" />
+            {PROGRESS_MESSAGES[msgIdx]}
           </span>
         )}
       </div>
 
       {/* ── SCREEN 1: Upload ─────────────────────────────────────────────────── */}
-      {(phase === "upload" || phase === "extracting") && (
+      {(showUpload || isProcessing) && (
         <div className="max-w-2xl mx-auto px-4 py-16">
           <div className="text-center mb-10">
             <h2 className="text-3xl font-bold mb-3">Bring your tenants over</h2>
@@ -367,14 +342,17 @@ export default function MigrationPage() {
           <div
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
-            onClick={() => phase !== "extracting" && fileRef.current?.click()}
+            onClick={() => !isProcessing && fileRef.current?.click()}
             className="border-2 border-dashed rounded-2xl p-16 text-center cursor-pointer hover:bg-muted/40 hover:border-primary/40 transition-all"
           >
-            {phase === "extracting" ? (
-              <div className="space-y-4">
+            {isProcessing ? (
+              <div className="space-y-5">
                 <Sparkles className="h-12 w-12 mx-auto text-primary animate-pulse" />
-                <p className="text-xl font-semibold">Reading your document…</p>
-                <p className="text-muted-foreground">Extracting tenant info, lease terms, and payment history</p>
+                <div>
+                  <p className="text-xl font-semibold mb-1">{PROGRESS_MESSAGES[msgIdx]}</p>
+                  <p className="text-sm text-muted-foreground">{ctx.fileName}</p>
+                </div>
+                <p className="text-xs text-muted-foreground">You can navigate away — we'll notify you when it's ready</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -393,32 +371,32 @@ export default function MigrationPage() {
           </div>
           <input ref={fileRef} type="file" accept={ACCEPTED} className="hidden" onChange={onFileChange} />
 
-          <div className="mt-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-xs text-muted-foreground">or paste data directly</span>
-              <div className="flex-1 h-px bg-border" />
+          {!isProcessing && (
+            <div className="mt-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-xs text-muted-foreground">or paste data directly</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <textarea
+                placeholder="Paste CSV rows, copied spreadsheet data, or any tenant info here…"
+                rows={4}
+                className="w-full rounded-xl border bg-background px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData("text");
+                  if (text.trim()) { e.preventDefault(); handlePastedText(text); }
+                }}
+              />
             </div>
-            <textarea
-              disabled={phase === "extracting"}
-              placeholder="Paste CSV rows, copied spreadsheet data, or any tenant info here…"
-              rows={4}
-              className="w-full rounded-xl border bg-background px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 placeholder:text-muted-foreground/60"
-              onPaste={(e) => {
-                const text = e.clipboardData.getData("text");
-                if (text.trim()) { e.preventDefault(); handlePastedText(text); }
-              }}
-            />
-          </div>
+          )}
         </div>
       )}
 
       {/* ── SCREEN 2: Review (cards) ──────────────────────────────────────────── */}
-      {phase === "review" && (
+      {showReview && (
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
-          {/* Options + action bar */}
           <div className="flex flex-wrap items-center gap-4 bg-background border rounded-xl px-4 py-3 shadow-sm">
-            <div className="flex gap-4 text-sm">
+            <div className="flex flex-wrap gap-4 text-sm">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={createLeases} onChange={(e) => setCreateLeases(e.target.checked)} className="rounded" />
                 Create properties & leases
@@ -429,9 +407,7 @@ export default function MigrationPage() {
               </label>
             </div>
             <div className="ml-auto flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => { setPhase("upload"); setRecords([]); }}>
-                ← Upload another
-              </Button>
+              <Button variant="outline" size="sm" onClick={startNew}>← Upload another</Button>
               <Button size="sm" onClick={handleImport} disabled={records.length === 0} className="gap-2">
                 Import {records.length} tenant{records.length !== 1 ? "s" : ""}
                 <ArrowRight className="h-4 w-4" />
@@ -439,23 +415,20 @@ export default function MigrationPage() {
             </div>
           </div>
 
-          {truncated && (
+          {ctx.truncated && (
             <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               File was very large — only the first portion was analyzed. Split into smaller batches for a complete import.
             </div>
           )}
 
-          <p className="text-xs text-muted-foreground px-1">
-            Review each tenant below. Click any value to correct it before importing.
-          </p>
+          <p className="text-xs text-muted-foreground px-1">Review each tenant below. Click any value to correct it before importing.</p>
 
           {records.map((r, i) => (
             <TenantCard
               key={i}
-              index={i}
               record={r}
-              isConflict={!!(r.email && conflicts.has(r.email))}
+              isConflict={!!r._conflict}
               onUpdate={(field, value) => updateRecord(i, field, value)}
               onRemove={() => setRecords((prev) => prev.filter((_, idx) => idx !== i))}
               onViewHistory={() => setHistoryRow(i)}
@@ -472,7 +445,7 @@ export default function MigrationPage() {
       )}
 
       {/* ── SCREEN: Importing ─────────────────────────────────────────────────── */}
-      {phase === "importing" && (
+      {showImporting && (
         <div className="max-w-md mx-auto px-4 py-24 text-center space-y-6">
           <Sparkles className="h-12 w-12 mx-auto text-primary animate-pulse" />
           <div>
@@ -485,7 +458,7 @@ export default function MigrationPage() {
       )}
 
       {/* ── SCREEN 3: Done ────────────────────────────────────────────────────── */}
-      {phase === "done" && done && (
+      {showDone && done && (
         <div className="max-w-lg mx-auto px-4 py-24 text-center space-y-8">
           <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
             <CheckCircle className="h-9 w-9 text-emerald-600" />
@@ -494,7 +467,6 @@ export default function MigrationPage() {
             <h2 className="text-2xl font-bold mb-2">All done!</h2>
             <p className="text-muted-foreground">Your tenants are now in GHM.</p>
           </div>
-
           <div className="grid grid-cols-2 gap-3 text-left">
             {[
               { label: "Tenants added", value: done.tenants, color: "text-primary" },
@@ -508,7 +480,6 @@ export default function MigrationPage() {
               </div>
             ))}
           </div>
-
           {done.errors.length > 0 && (
             <div className="text-left rounded-xl bg-yellow-50 border border-yellow-200 p-4 space-y-1">
               <p className="text-sm font-medium flex items-center gap-1.5 text-yellow-800">
@@ -517,36 +488,21 @@ export default function MigrationPage() {
               {done.errors.slice(0, 5).map((e, i) => (
                 <p key={i} className="text-xs text-yellow-700 pl-5">{e}</p>
               ))}
-              {done.errors.length > 5 && (
-                <p className="text-xs text-yellow-600 pl-5">…and {done.errors.length - 5} more</p>
-              )}
+              {done.errors.length > 5 && <p className="text-xs text-yellow-600 pl-5">…and {done.errors.length - 5} more</p>}
             </div>
           )}
-
           <div className="flex gap-3 justify-center">
-            <Button onClick={() => router.push("/tenants")} className="gap-2">
-              View Tenants <ArrowRight className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard")}>
-              Dashboard
-            </Button>
+            <Button onClick={() => router.push("/tenants")} className="gap-2">View Tenants <ArrowRight className="h-4 w-4" /></Button>
+            <Button variant="outline" onClick={() => router.push("/dashboard")}>Dashboard</Button>
           </div>
-
-          <button
-            onClick={() => { setPhase("upload"); setRecords([]); setDone(null); setProgress({ done: 0, total: 0 }); }}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
-          >
+          <button onClick={startNew} className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
             Import another document
           </button>
         </div>
       )}
 
       {historyRow !== null && records[historyRow] && (
-        <PaymentHistoryDialog
-          record={records[historyRow]}
-          open={true}
-          onClose={() => setHistoryRow(null)}
-        />
+        <PaymentHistoryDialog record={records[historyRow]} open={true} onClose={() => setHistoryRow(null)} />
       )}
     </div>
   );
