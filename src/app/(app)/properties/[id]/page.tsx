@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Building2, ArrowLeft, MapPin, Wrench, Plus, Users } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { PropertyDeleteButton } from "@/components/properties/PropertyActions";
 
 const STATUS_STYLES: Record<string, string> = {
   occupied: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
@@ -149,6 +150,65 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
         </CardContent>
       </Card>
 
+      {/* Tenants */}
+      {(() => {
+        const tenants = property.units.flatMap((unit) => {
+          const activeLease = unit.leases[0];
+          if (!activeLease) return [];
+          return activeLease.tenants.map((lt) => ({
+            tenant: lt.tenant,
+            unitNumber: unit.unitNumber,
+            leaseId: activeLease.id,
+            rentAmount: activeLease.rentAmount,
+            lastPayment: activeLease.rentPayments[0],
+          }));
+        });
+        if (tenants.length === 0) return null;
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Users className="h-4 w-4" />Tenants ({tenants.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {tenants.map(({ tenant, unitNumber, leaseId, rentAmount, lastPayment }) => (
+                  <Link
+                    key={tenant.id}
+                    href={`/tenants/${tenant.id}`}
+                    className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors group"
+                  >
+                    <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
+                      {tenant.firstName[0]}{tenant.lastName[0]}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm group-hover:text-primary transition-colors">
+                        {tenant.firstName} {tenant.lastName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Unit {unitNumber} · {formatCurrency(Number(rentAmount))}/mo</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {lastPayment && (
+                        <Badge
+                          variant={lastPayment.status === "paid" ? "secondary" : lastPayment.status === "overdue" ? "destructive" : "outline"}
+                          className="text-xs"
+                        >
+                          {lastPayment.status}
+                        </Badge>
+                      )}
+                      <Link href={`/leases/${leaseId}`} onClick={(e) => e.stopPropagation()} className="block text-xs text-muted-foreground hover:text-primary mt-0.5 transition-colors">
+                        View lease
+                      </Link>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Property details */}
       <Card>
         <CardHeader className="pb-3">
@@ -181,6 +241,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             <Plus className="h-4 w-4" />Create lease
           </Button>
         </Link>
+        <PropertyDeleteButton propertyId={id} propertyName={property.name} />
       </div>
     </div>
   );

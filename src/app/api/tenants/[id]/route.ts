@@ -67,3 +67,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { organizationId } = await requireOrg();
+    const { id } = await params;
+
+    const existing = await prisma.tenant.findFirst({ where: { id, organizationId } });
+    if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
+
+    // Hard delete — cascades via Prisma relations (LeaseTenant links, portal sessions, etc.)
+    await prisma.tenant.delete({ where: { id } });
+    return Response.json({ ok: true });
+  } catch {
+    return Response.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

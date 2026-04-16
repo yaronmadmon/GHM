@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sparkles, Upload, CheckCircle, AlertTriangle,
   Trash2, ChevronRight, ArrowRight, Pencil, Check, X,
@@ -21,6 +22,7 @@ interface DoneStats {
   properties: number;
   leases: number;
   payments: number;
+  transactions: number;
   skipped: number;
   errors: string[];
 }
@@ -84,43 +86,114 @@ function Field({
 
 // ─── Payment History Dialog ───────────────────────────────────────────────────
 
+const LEDGER_TYPE_LABELS: Record<string, string> = {
+  rent_charge: "Rent charge",
+  rent_payment: "Rent payment",
+  late_fee: "Late fee",
+  nsf_fee: "NSF fee",
+  attorney_fee: "Attorney fee",
+  legal_fee: "Legal fee",
+  court_cost: "Court cost",
+  credit: "Credit",
+  adjustment: "Adjustment",
+  deposit: "Deposit",
+  other: "Other",
+};
+
 function PaymentHistoryDialog({ record, open, onClose }: { record: ExtractedTenant; open: boolean; onClose: () => void }) {
+  const hasPayments = (record.paymentHistory?.length ?? 0) > 0;
+  const hasLedger = (record.ledgerEntries?.length ?? 0) > 0;
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Payment History — {record.firstName} {record.lastName}</DialogTitle>
+          <DialogTitle>Ledger — {record.firstName} {record.lastName}</DialogTitle>
         </DialogHeader>
-        {!record.paymentHistory?.length ? (
-          <p className="text-sm text-muted-foreground py-4">No payment history in this document.</p>
-        ) : (
-          <div className="overflow-y-auto max-h-80">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Date</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Amount</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Status</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Method</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {record.paymentHistory.map((p, i) => (
-                  <tr key={i} className="hover:bg-muted/20">
-                    <td className="px-3 py-2 text-sm">{p.date}</td>
-                    <td className="px-3 py-2 text-sm font-mono">${p.amount.toLocaleString()}</td>
-                    <td className="px-3 py-2">
-                      <Badge variant={p.status === "paid" ? "default" : p.status === "overdue" ? "destructive" : "secondary"} className="text-xs">
-                        {p.status}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 text-sm text-muted-foreground">{p.method || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <Tabs defaultValue={hasLedger ? "ledger" : "payments"}>
+          <TabsList className="mb-3">
+            <TabsTrigger value="payments">
+              Rent Payments {hasPayments && <span className="ml-1.5 text-xs text-muted-foreground">({record.paymentHistory!.length})</span>}
+            </TabsTrigger>
+            <TabsTrigger value="ledger">
+              Fees & Charges {hasLedger && <span className="ml-1.5 text-xs text-muted-foreground">({record.ledgerEntries!.length})</span>}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="payments">
+            {!hasPayments ? (
+              <p className="text-sm text-muted-foreground py-4">No rent payments in this document.</p>
+            ) : (
+              <div className="overflow-y-auto max-h-80">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Date</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Amount</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Status</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Method</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {record.paymentHistory!.map((p, i) => (
+                      <tr key={i} className="hover:bg-muted/20">
+                        <td className="px-3 py-2 text-sm">{p.date}</td>
+                        <td className="px-3 py-2 text-sm font-mono">${p.amount.toLocaleString()}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant={p.status === "paid" ? "default" : p.status === "overdue" ? "destructive" : "secondary"} className="text-xs">
+                            {p.status}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-sm text-muted-foreground">{p.method || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="ledger">
+            {!hasLedger ? (
+              <p className="text-sm text-muted-foreground py-4">No fees or charges found in this document.</p>
+            ) : (
+              <div className="overflow-y-auto max-h-80">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Date</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Type</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground text-xs">Description</th>
+                      <th className="text-right px-3 py-2 font-medium text-muted-foreground text-xs">Amount</th>
+                      <th className="text-right px-3 py-2 font-medium text-muted-foreground text-xs">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {record.ledgerEntries!.map((e, i) => (
+                      <tr key={i} className="hover:bg-muted/20">
+                        <td className="px-3 py-2 text-sm whitespace-nowrap">{e.date}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant={e.type === "credit" || e.amount < 0 ? "secondary" : "outline"} className="text-xs whitespace-nowrap">
+                            {LEDGER_TYPE_LABELS[e.type] ?? e.type}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-sm text-muted-foreground max-w-[200px] truncate" title={e.description}>
+                          {e.description}
+                        </td>
+                        <td className={`px-3 py-2 text-sm font-mono text-right ${e.amount < 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {e.amount < 0 ? "-" : "+"}${Math.abs(e.amount).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-sm font-mono text-right text-muted-foreground">
+                          {e.runningBalance != null ? `$${e.runningBalance.toLocaleString()}` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
@@ -185,10 +258,13 @@ function TenantCard({ record, isConflict, onUpdate, onRemove, onViewHistory }: {
         <Field label="Lease end" value={record.leaseEnd} onChange={(v) => onUpdate("leaseEnd", v)} placeholder="month-to-month" />
 
         <div className="col-span-2 flex flex-col gap-0.5">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Payment history</span>
-          {record.paymentHistory?.length ? (
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Ledger</span>
+          {(record.paymentHistory?.length || record.ledgerEntries?.length) ? (
             <button onClick={onViewHistory} className="flex items-center gap-1 text-sm text-primary hover:underline w-fit">
-              {record.paymentHistory.length} transaction{record.paymentHistory.length !== 1 ? "s" : ""} found
+              {[
+                record.paymentHistory?.length ? `${record.paymentHistory.length} payment${record.paymentHistory.length !== 1 ? "s" : ""}` : null,
+                record.ledgerEntries?.length ? `${record.ledgerEntries.length} charge${record.ledgerEntries.length !== 1 ? "s" : ""}` : null,
+              ].filter(Boolean).join(", ")}
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           ) : (
@@ -273,7 +349,7 @@ export default function MigrationPage() {
     setCommitPhase("importing");
     const total = records.length;
     setProgress({ done: 0, total });
-    const agg: DoneStats = { tenants: 0, properties: 0, leases: 0, payments: 0, skipped: 0, errors: [] };
+    const agg: DoneStats = { tenants: 0, properties: 0, leases: 0, payments: 0, transactions: 0, skipped: 0, errors: [] };
 
     for (let i = 0; i < records.length; i += CHUNK_SIZE) {
       const chunk = records.slice(i, i + CHUNK_SIZE);
@@ -288,6 +364,7 @@ export default function MigrationPage() {
         agg.properties += d.properties ?? 0;
         agg.leases += d.leases ?? 0;
         agg.payments += d.payments ?? 0;
+        agg.transactions += d.transactions ?? 0;
         agg.skipped += d.skipped ?? 0;
         agg.errors.push(...(d.errors ?? []));
       } else {
@@ -478,6 +555,7 @@ export default function MigrationPage() {
               { label: "Properties created", value: done.properties, color: "text-blue-600" },
               { label: "Leases created", value: done.leases, color: "text-purple-600" },
               { label: "Payment records", value: done.payments, color: "text-emerald-600" },
+              ...(done.transactions > 0 ? [{ label: "Fees & charges", value: done.transactions, color: "text-orange-600" }] : []),
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-muted/40 rounded-xl p-4 border">
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>

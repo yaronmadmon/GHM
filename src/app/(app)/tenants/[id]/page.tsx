@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   User, Phone, Mail, Home, Briefcase, FileText, DollarSign,
-  Calendar, ArrowLeft, MessageSquare, AlertTriangle, ShieldCheck,
+  Calendar, ArrowLeft, MessageSquare, AlertTriangle, ShieldCheck, ScrollText,
 } from "lucide-react";
 import { formatCurrency, formatDate, getInitials } from "@/lib/utils";
 import { TenantMessageButton } from "@/components/tenants/TenantMessageButton";
 import { SendPortalInviteButton } from "@/components/tenants/SendPortalInviteButton";
+import { TenantActions } from "@/components/tenants/TenantActions";
 
 export default async function TenantDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,8 +27,9 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
           lease: {
             include: {
               unit: { include: { property: true } },
-              rentPayments: { orderBy: { dueDate: "desc" }, take: 12 },
+              rentPayments: { orderBy: { dueDate: "asc" } },
               documents: true,
+              transactions: { orderBy: { date: "asc" } },
             },
           },
         },
@@ -88,7 +90,13 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <TenantActions tenant={tenant} />
+          <Link href={`/tenants/${id}/ledger`}>
+            <Button size="sm" variant="outline" className="gap-2">
+              <ScrollText className="h-4 w-4" />Ledger
+            </Button>
+          </Link>
           {portalUserId ? (
             <TenantMessageButton
               tenantUserId={portalUserId}
@@ -219,14 +227,17 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
       {/* Rent payment history */}
       {activeLease && activeLease.rentPayments.length > 0 && (
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <DollarSign className="h-4 w-4" />Recent Rent Payments
+              <DollarSign className="h-4 w-4" />Rent Payments ({activeLease.rentPayments.length})
             </CardTitle>
+            <Link href={`/tenants/${id}/ledger`} className="text-xs text-primary hover:underline">
+              Full ledger →
+            </Link>
           </CardHeader>
           <CardContent>
             <div className="space-y-1">
-              {activeLease.rentPayments.slice(0, 6).map((p) => {
+              {[...activeLease.rentPayments].reverse().slice(0, 6).map((p) => {
                 const statusColor = p.status === "paid" ? "text-emerald-600" : p.status === "overdue" ? "text-destructive" : "text-muted-foreground";
                 return (
                   <div key={p.id} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
@@ -238,6 +249,43 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
                   </div>
                 );
               })}
+              {activeLease.rentPayments.length > 6 && (
+                <Link href={`/tenants/${id}/ledger`} className="block text-center text-xs text-primary hover:underline pt-1">
+                  View all {activeLease.rentPayments.length} payments →
+                </Link>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Fees & charges */}
+      {activeLease && activeLease.transactions.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <ScrollText className="h-4 w-4" />Fees &amp; Charges ({activeLease.transactions.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {[...activeLease.transactions].reverse().slice(0, 5).map((t) => (
+                <div key={t.id} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                  <div>
+                    <span className="text-muted-foreground mr-2">{new Date(t.date).toLocaleDateString()}</span>
+                    <span className="text-xs capitalize">{t.category.replace("_", " ")}</span>
+                    {t.description && <span className="text-xs text-muted-foreground ml-2 truncate max-w-[180px] inline-block align-middle">{t.description}</span>}
+                  </div>
+                  <span className={`font-mono text-sm font-medium ${t.type === "income" ? "text-red-600" : "text-emerald-600"}`}>
+                    {t.type === "income" ? "+" : "-"}{formatCurrency(Number(t.amount))}
+                  </span>
+                </div>
+              ))}
+              {activeLease.transactions.length > 5 && (
+                <Link href={`/tenants/${id}/ledger`} className="block text-center text-xs text-primary hover:underline pt-1">
+                  View all {activeLease.transactions.length} charges →
+                </Link>
+              )}
             </div>
           </CardContent>
         </Card>

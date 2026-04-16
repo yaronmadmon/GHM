@@ -33,6 +33,13 @@ export interface ExtractedTenant {
     status: "paid" | "partial" | "overdue" | "pending";
     method?: string;
   }>;
+  ledgerEntries?: Array<{
+    date: string;             // YYYY-MM-DD
+    type: "rent_charge" | "rent_payment" | "late_fee" | "legal_fee" | "court_cost" | "attorney_fee" | "nsf_fee" | "credit" | "adjustment" | "deposit" | "other";
+    description: string;      // verbatim from source document
+    amount: number;           // positive = charge/debit, negative = credit/payment
+    runningBalance?: number;  // balance after this entry if shown in source
+  }>;
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
@@ -55,6 +62,8 @@ export async function POST(req: NextRequest) {
 
       const extractionPrompt = `You are a data extraction assistant for a property management app. Extract every tenant/renter you can find from this document.
 
+IMPORTANT: This data may be used in legal proceedings. Extract EXACTLY what is in the document — do not infer, estimate, or fill in missing values.
+
 Return ONLY a valid JSON array — no explanation, no markdown, no code fences. Each element:
 {
   "firstName": string,
@@ -76,18 +85,42 @@ Return ONLY a valid JSON array — no explanation, no markdown, no code fences. 
   "notes": string,
   "paymentHistory": [
     { "date": "YYYY-MM-DD", "amount": number, "status": "paid"|"partial"|"overdue"|"pending", "method": string }
+  ],
+  "ledgerEntries": [
+    { "date": "YYYY-MM-DD", "type": string, "description": string, "amount": number, "runningBalance": number }
   ]
 }
 
-Rules:
+FIELD RULES:
 - firstName and lastName are REQUIRED. Split "John Smith" → firstName:"John", lastName:"Smith".
 - Strip $ and commas from all money values.
 - depositPaid: true if deposit was received/paid.
-- balance: amount tenant currently owes. 0 if fully current.
-- All dates → YYYY-MM-DD.
+- balance: final outstanding amount the tenant owes. 0 if fully current.
+- All dates → YYYY-MM-DD. Never omit a date that is present in the document.
 - Never guess an email or phone — omit if not clearly present.
-- Merge multiple rows for the same tenant into one record with paymentHistory.
-- Return [] only if there are absolutely no people or rental records.`;
+- Merge multiple rows for the same tenant into one record.
+- Return [] only if there are absolutely no people or rental records.
+
+PAYMENT HISTORY (paymentHistory array):
+- Include ONLY rent payments received from the tenant (money the tenant paid toward rent).
+- Each entry: date paid, amount paid, status (paid/partial/overdue/pending), payment method if shown.
+
+LEDGER ENTRIES (ledgerEntries array) — THIS IS CRITICAL:
+- Include EVERY line item from the document that is not a simple rent payment, including:
+  * Rent charges billed to the tenant → type: "rent_charge"
+  * Late fees or late charges → type: "late_fee"
+  * NSF / bounced check fees → type: "nsf_fee"
+  * Attorney fees / legal fees → type: "attorney_fee"
+  * Court filing costs / court charges → type: "court_cost"
+  * Other legal fees → type: "legal_fee"
+  * Credits or refunds given to tenant → type: "credit" (use negative amount)
+  * Balance adjustments → type: "adjustment"
+  * Deposit charges → type: "deposit"
+  * Anything else billed or credited → type: "other"
+- description: copy the exact description from the document, verbatim.
+- amount: positive for charges/debits to tenant, negative for credits/payments.
+- runningBalance: include if a running balance column is visible in the source.
+- If the document IS a ledger/account statement, capture every single row. Do not skip any line items.`;
 
       let message;
       let truncated = false;
@@ -98,7 +131,7 @@ Rules:
         const mimeType = file.type || "image/png";
         message = await client.chat.completions.create({
           model: "gpt-4o",
-          max_tokens: 4096,
+          max_tokens: 8192,
           messages: [
             {
               role: "user",
@@ -152,7 +185,7 @@ Rules:
         const content = truncated ? textContent.slice(0, MAX_CHARS) + "\n... [truncated]" : textContent;
         message = await client.chat.completions.create({
           model: "gpt-4o",
-          max_tokens: 4096,
+          max_tokens: 8192,
           messages: [
             { role: "system", content: extractionPrompt },
             { role: "user", content: `Extract all tenant records:\n\n${content}` },
@@ -164,7 +197,7 @@ Rules:
 
       let extracted: ExtractedTenant[] = [];
       try {
-        // Strip markdown code fences if Claude wrapped the JSON
+        // Strip markdown code fences if model wrapped the JSON
         const cleaned = rawText.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
         extracted = JSON.parse(cleaned);
         if (!Array.isArray(extracted)) extracted = [];
@@ -201,6 +234,7 @@ Rules:
         properties: 0,
         leases: 0,
         payments: 0,
+        transactions: 0,
         skipped: 0,
         errors: [] as string[],
       };
@@ -311,7 +345,7 @@ Rules:
               await prisma.unit.update({ where: { id: unit.id }, data: { status: "occupied" } });
 
               if (options.createPayments) {
-                // 3a. Import payment history records
+                // 3a. Import rent payment history records
                 const coveredPeriods = new Set<string>();
                 if (rec.paymentHistory?.length) {
                   for (const ph of rec.paymentHistory) {
@@ -381,6 +415,46 @@ Rules:
                       update: {},
                     });
                     results.payments++;
+                  }
+                }
+
+                // 3c. Import ledger entries (late fees, legal fees, court costs, etc.)
+                //     as Transaction records
+                if (rec.ledgerEntries?.length) {
+                  const categoryMap: Record<string, string> = {
+                    late_fee: "late_fee",
+                    nsf_fee: "late_fee",
+                    attorney_fee: "other",
+                    legal_fee: "other",
+                    court_cost: "other",
+                    credit: "other",
+                    adjustment: "other",
+                    deposit: "deposit",
+                    rent_charge: "rent",
+                    rent_payment: "rent",
+                    other: "other",
+                  };
+                  for (const entry of rec.ledgerEntries) {
+                    const d = new Date(entry.date);
+                    if (isNaN(d.getTime())) continue;
+                    // Skip pure rent payments (already captured in paymentHistory)
+                    if (entry.type === "rent_payment") continue;
+                    const isCredit = entry.amount < 0;
+                    await prisma.transaction.create({
+                      data: {
+                        organizationId,
+                        leaseId: lease.id,
+                        unitId: unit.id,
+                        propertyId: property.id,
+                        type: isCredit ? "expense" : "income",
+                        category: categoryMap[entry.type] ?? "other",
+                        amount: Math.abs(entry.amount),
+                        date: d,
+                        description: `[Imported] ${entry.description}${entry.runningBalance != null ? ` (balance: $${entry.runningBalance})` : ""}`,
+                        createdById: userId,
+                      },
+                    });
+                    results.transactions++;
                   }
                 }
               }

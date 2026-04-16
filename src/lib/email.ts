@@ -65,4 +65,32 @@ export async function sendPortalInvite(to: string, tenantName: string, setupUrl:
   `);
 }
 
+export async function sendLedgerReport({
+  to,
+  toName,
+  tenantName,
+  orgName,
+  ledgerHtml,
+  message,
+}: {
+  to: string;
+  toName?: string;
+  tenantName: string;
+  orgName: string;
+  ledgerHtml: string;
+  message?: string;
+}) {
+  await send(to, `Rent Ledger — ${tenantName} (from ${orgName})`, `
+    <div style="font-family:sans-serif;max-width:700px;margin:0 auto">
+      <h2 style="margin-bottom:4px">Tenant Rent Ledger</h2>
+      <p style="color:#666;margin-top:0">Prepared by <strong>${orgName}</strong></p>
+      ${message ? `<p style="background:#f5f5f5;padding:12px 16px;border-radius:6px;color:#333">${message}</p>` : ""}
+      <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
+      ${ledgerHtml}
+      <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
+      <p style="color:#999;font-size:12px">This document was sent securely from ${orgName} via GHM Property Management.</p>
+    </div>
+  `);
+}
+
 export { APP_URL };
