@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -9,7 +9,7 @@ import { Users, Plus, Mail, Phone } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
 export default async function TenantsPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   const tenants = await prisma.tenant.findMany({

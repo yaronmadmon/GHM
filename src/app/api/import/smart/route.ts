@@ -35,7 +35,7 @@ export interface ExtractedTenant {
   }>;
   ledgerEntries?: Array<{
     date: string;             // YYYY-MM-DD
-    type: "rent_charge" | "rent_payment" | "late_fee" | "legal_fee" | "court_cost" | "attorney_fee" | "nsf_fee" | "credit" | "adjustment" | "deposit" | "other";
+    type: "late_fee" | "legal_fee" | "court_cost" | "attorney_fee" | "nsf_fee" | "credit" | "adjustment" | "deposit" | "other";
     description: string;      // verbatim from source document
     amount: number;           // positive = charge/debit, negative = credit/payment
     runningBalance?: number;  // balance after this entry if shown in source
@@ -101,13 +101,16 @@ FIELD RULES:
 - Merge multiple rows for the same tenant into one record.
 - Return [] only if there are absolutely no people or rental records.
 
-PAYMENT HISTORY (paymentHistory array):
-- Include ONLY rent payments received from the tenant (money the tenant paid toward rent).
-- Each entry: date paid, amount paid, status (paid/partial/overdue/pending), payment method if shown.
+PAYMENT HISTORY (paymentHistory array) — rent money the tenant actually paid:
+- Include EVERY individual rent payment event. If a tenant made 3 separate payments in one month, list each one separately with its actual date and amount.
+- These are ONLY money-in events: rent received from the tenant.
+- Do NOT include rent charges (what the tenant owes) — only actual payments received.
+- status: "paid" if fully paid, "partial" if only part of rent was paid that month, "overdue" if still owed, "pending" if not yet received.
+- method: payment method if shown (cash, check, money order, ACH, etc.).
 
-LEDGER ENTRIES (ledgerEntries array) — THIS IS CRITICAL:
-- Include EVERY line item from the document that is not a simple rent payment, including:
-  * Rent charges billed to the tenant → type: "rent_charge"
+LEDGER ENTRIES (ledgerEntries array) — fees, penalties, and non-rent charges/credits ONLY:
+- *** CRITICAL: DO NOT include regular monthly rent charges in ledgerEntries. DO NOT include rent payments in ledgerEntries. Both of those go ONLY in paymentHistory. ***
+- ledgerEntries is EXCLUSIVELY for:
   * Late fees or late charges → type: "late_fee"
   * NSF / bounced check fees → type: "nsf_fee"
   * Attorney fees / legal fees → type: "attorney_fee"
@@ -115,12 +118,12 @@ LEDGER ENTRIES (ledgerEntries array) — THIS IS CRITICAL:
   * Other legal fees → type: "legal_fee"
   * Credits or refunds given to tenant → type: "credit" (use negative amount)
   * Balance adjustments → type: "adjustment"
-  * Deposit charges → type: "deposit"
-  * Anything else billed or credited → type: "other"
-- description: copy the exact description from the document, verbatim.
-- amount: positive for charges/debits to tenant, negative for credits/payments.
+  * Security deposit charges → type: "deposit"
+  * Anything else that is NOT a monthly rent charge or rent payment → type: "other"
+- description: copy the exact text from the document, verbatim.
+- amount: positive for charges/debits to tenant, negative for credits.
 - runningBalance: include if a running balance column is visible in the source.
-- If the document IS a ledger/account statement, capture every single row. Do not skip any line items.`;
+- If the document IS a ledger, capture every non-rent fee row. Do not skip any fee or legal charge.`;
 
       let message;
       let truncated = false;
@@ -346,40 +349,68 @@ LEDGER ENTRIES (ledgerEntries array) — THIS IS CRITICAL:
 
               if (options.createPayments) {
                 // 3a. Import rent payment history records
+                // Group multiple payments in the same month and sum them up
                 const coveredPeriods = new Set<string>();
                 if (rec.paymentHistory?.length) {
+                  // Group by year-month
+                  const monthGroups = new Map<string, {
+                    year: number; month: number; totalPaid: number;
+                    lastDate: Date; lastMethod?: string; lastStatus: string;
+                  }>();
                   for (const ph of rec.paymentHistory) {
                     const d = new Date(ph.date);
                     if (isNaN(d.getTime())) continue;
                     const year = d.getFullYear();
                     const month = d.getMonth() + 1;
+                    const key = `${year}-${month}`;
+                    const existing = monthGroups.get(key);
+                    const paidAmount = (ph.status === "paid" || ph.status === "partial") ? ph.amount : 0;
+                    if (existing) {
+                      existing.totalPaid += paidAmount;
+                      if (d > existing.lastDate) {
+                        existing.lastDate = d;
+                        existing.lastMethod = ph.method;
+                        existing.lastStatus = ph.status;
+                      }
+                    } else {
+                      monthGroups.set(key, {
+                        year, month, totalPaid: paidAmount,
+                        lastDate: d, lastMethod: ph.method, lastStatus: ph.status,
+                      });
+                    }
+                  }
+
+                  for (const g of monthGroups.values()) {
+                    // Determine final status: if totalPaid >= rentAmount → paid, else partial
+                    const finalStatus = g.totalPaid >= rec.rentAmount
+                      ? "paid"
+                      : g.totalPaid > 0
+                      ? "partial"
+                      : (g.lastStatus as "pending" | "overdue");
                     await prisma.rentPayment.upsert({
                       where: {
                         leaseId_periodYear_periodMonth: {
                           leaseId: lease.id,
-                          periodYear: year,
-                          periodMonth: month,
+                          periodYear: g.year,
+                          periodMonth: g.month,
                         },
                       },
                       create: {
                         organizationId,
                         leaseId: lease.id,
-                        periodYear: year,
-                        periodMonth: month,
+                        periodYear: g.year,
+                        periodMonth: g.month,
                         amountDue: rec.rentAmount,
-                        amountPaid:
-                          ph.status === "paid" ? ph.amount
-                          : ph.status === "partial" ? ph.amount
-                          : 0,
-                        status: ph.status,
-                        dueDate: d,
-                        paidAt: ph.status === "paid" || ph.status === "partial" ? d : undefined,
-                        paymentMethod: ph.method || null,
+                        amountPaid: g.totalPaid,
+                        status: finalStatus,
+                        dueDate: new Date(g.year, g.month - 1, 1),
+                        paidAt: g.totalPaid > 0 ? g.lastDate : undefined,
+                        paymentMethod: g.lastMethod || null,
                         recordedById: userId,
                       },
                       update: {},
                     });
-                    coveredPeriods.add(`${year}-${month}`);
+                    coveredPeriods.add(`${g.year}-${g.month}`);
                     results.payments++;
                   }
                 }
@@ -430,15 +461,11 @@ LEDGER ENTRIES (ledgerEntries array) — THIS IS CRITICAL:
                     credit: "other",
                     adjustment: "other",
                     deposit: "deposit",
-                    rent_charge: "rent",
-                    rent_payment: "rent",
                     other: "other",
                   };
                   for (const entry of rec.ledgerEntries) {
                     const d = new Date(entry.date);
                     if (isNaN(d.getTime())) continue;
-                    // Skip pure rent payments (already captured in paymentHistory)
-                    if (entry.type === "rent_payment") continue;
                     const isCredit = entry.amount < 0;
                     await prisma.transaction.create({
                       data: {

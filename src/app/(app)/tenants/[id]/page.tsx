@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
@@ -16,7 +16,7 @@ import { TenantActions } from "@/components/tenants/TenantActions";
 
 export default async function TenantDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   const tenant = await prisma.tenant.findFirst({
@@ -91,7 +91,18 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-          <TenantActions tenant={tenant} />
+          <TenantActions tenant={{
+            id: tenant.id,
+            firstName: tenant.firstName,
+            lastName: tenant.lastName,
+            email: tenant.email,
+            phone: tenant.phone,
+            dateOfBirth: tenant.dateOfBirth,
+            ssnLast4: tenant.ssnLast4,
+            emergencyContactName: tenant.emergencyContactName,
+            emergencyContactPhone: tenant.emergencyContactPhone,
+            notes: tenant.notes,
+          }} />
           <Link href={`/tenants/${id}/ledger`}>
             <Button size="sm" variant="outline" className="gap-2">
               <ScrollText className="h-4 w-4" />Ledger

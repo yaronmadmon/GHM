@@ -17,6 +17,9 @@ import {
   ChevronLeft,
   MessageSquare,
   HardHat,
+  DoorOpen,
+  RefreshCw,
+  CalendarDays,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -25,27 +28,65 @@ import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { GlobalSearch } from "@/components/GlobalSearch";
 
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  badgeKey?: string;
+}
+
+interface NavSection {
+  label?: string;
+  items: NavItem[];
+}
+
+const navSections: NavSection[] = [
+  {
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/properties", label: "Properties", icon: Building2 },
+      { href: "/tenants", label: "Tenants", icon: Users },
+    ],
+  },
+  {
+    label: "Leasing",
+    items: [
+      { href: "/vacancy", label: "Vacancy", icon: DoorOpen },
+      { href: "/applications", label: "Applications", icon: ClipboardList, badgeKey: "applications" },
+      { href: "/leases", label: "Leases", icon: FileText },
+      { href: "/renewals", label: "Renewals", icon: RefreshCw },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/rent", label: "Rent", icon: DollarSign },
+      { href: "/maintenance", label: "Maintenance", icon: Wrench },
+      { href: "/vendors", label: "Vendors", icon: HardHat },
+      { href: "/messages", label: "Messages", icon: MessageSquare, badgeKey: "messages" },
+      { href: "/calendar", label: "Calendar", icon: CalendarDays },
+    ],
+  },
+  {
+    label: "Finance",
+    items: [
+      { href: "/financials", label: "Financials", icon: ArrowUpDown },
+      { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
+    ],
+  },
+  {
+    items: [
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
+];
+
 interface SidebarProps {
   pendingApplications?: number;
   unreadMessages?: number;
   collapsed?: boolean;
   onToggle?: () => void;
 }
-
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/properties", label: "Properties", icon: Building2 },
-  { href: "/tenants", label: "Tenants", icon: Users },
-  { href: "/leases", label: "Leases", icon: FileText },
-  { href: "/rent", label: "Rent", icon: DollarSign },
-  { href: "/maintenance", label: "Maintenance", icon: Wrench },
-  { href: "/vendors", label: "Vendors", icon: HardHat },
-  { href: "/financials", label: "Financials", icon: ArrowUpDown },
-  { href: "/applications", label: "Applications", icon: ClipboardList, badgeKey: "applications" },
-  { href: "/messages", label: "Messages", icon: MessageSquare, badgeKey: "messages" },
-  { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
 
 export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
@@ -86,39 +127,52 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
       {/* Nav */}
       <nav className="flex-1 py-3 overflow-y-auto">
         <ul className="space-y-0.5 px-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-            const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
-
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-2.5 py-2 rounded-md text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                    collapsed && "justify-center px-2"
-                  )}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1">{item.label}</span>
-                      {badgeCount > 0 && (
-                        <Badge variant="destructive" className="h-5 min-w-5 text-xs px-1">
-                          {badgeCount}
-                        </Badge>
-                      )}
-                    </>
-                  )}
-                </Link>
-              </li>
-            );
-          })}
+          {navSections.map((section, si) => (
+            <li key={si}>
+              {section.label && !collapsed && (
+                <p className="px-2.5 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 select-none">
+                  {section.label}
+                </p>
+              )}
+              {section.label && collapsed && si > 0 && (
+                <div className="my-1.5 mx-2 border-t border-sidebar-border/50" />
+              )}
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const badgeCount = item.badgeKey ? badges[item.badgeKey] : 0;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          "flex items-center gap-3 px-2.5 py-2 rounded-md text-sm font-medium transition-colors",
+                          isActive
+                            ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                          collapsed && "justify-center px-2"
+                        )}
+                        title={collapsed ? item.label : undefined}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {!collapsed && (
+                          <>
+                            <span className="flex-1">{item.label}</span>
+                            {badgeCount > 0 && (
+                              <Badge variant="destructive" className="h-5 min-w-5 text-xs px-1">
+                                {badgeCount}
+                              </Badge>
+                            )}
+                          </>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
         </ul>
       </nav>
 

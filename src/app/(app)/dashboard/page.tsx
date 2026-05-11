@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { addDays } from "date-fns";
@@ -15,15 +15,36 @@ import {
   TrendingUp,
   Sparkles,
   ArrowRight,
+  DoorOpen,
+  FileText,
+  MessageSquare,
 } from "lucide-react";
 import Link from "next/link";
 
-async function getDashboardData(organizationId: string) {
+const PRIORITY_ORDER: Record<string, number> = { emergency: 0, high: 1, medium: 2, low: 3 };
+const PRIORITY_STYLES: Record<string, string> = {
+  emergency: "bg-red-500/10 text-red-600 border-red-200",
+  high: "bg-orange-500/10 text-orange-600 border-orange-200",
+  medium: "bg-amber-500/10 text-amber-700 border-amber-200",
+  low: "bg-muted text-muted-foreground",
+};
+
+async function getDashboardData(organizationId: string, userId: string) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const [properties, expiringLeases, overduePayments, openMaintenance, pendingApps, monthPayments, recentActivity] = await Promise.all([
+  const [
+    properties,
+    expiringLeases,
+    overduePayments,
+    pendingApps,
+    monthPayments,
+    vacancyCount,
+    leasePipeline,
+    openMaintenance,
+    unreadThreads,
+  ] = await Promise.all([
     prisma.property.groupBy({ by: ["status"], where: { organizationId, archivedAt: null }, _count: true }),
     prisma.lease.findMany({
       where: { organizationId, status: "active", endDate: { gte: now, lte: addDays(now, 60) } },
@@ -34,22 +55,74 @@ async function getDashboardData(organizationId: string) {
     prisma.rentPayment.findMany({
       where: { organizationId, status: "overdue" },
       include: { lease: { include: { unit: { include: { property: true } }, tenants: { include: { tenant: true } } } } },
-      orderBy: { amountDue: "desc" },
-      take: 5,
     }),
-    prisma.maintenanceRequest.groupBy({ by: ["priority"], where: { organizationId, status: { in: ["open", "in_progress"] } }, _count: true }),
     prisma.application.count({ where: { organizationId, status: { in: ["pending", "documents_requested", "under_review", "screening"] } } }),
     prisma.rentPayment.findMany({ where: { organizationId, periodYear: year, periodMonth: month } }),
-    prisma.activityEvent.findMany({
-      where: { organizationId },
-      include: { actor: { select: { name: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 10,
+    prisma.unit.count({ where: { property: { organizationId }, leases: { none: { status: "active" } } } }),
+    prisma.lease.findMany({
+      where: { organizationId, signingStatus: { in: ["draft", "sent", "tenant_signed"] } },
+      include: { unit: { include: { property: true } }, tenants: { include: { tenant: true } } },
+      orderBy: { updatedAt: "desc" },
+      take: 6,
+    }),
+    prisma.maintenanceRequest.findMany({
+      where: { organizationId, status: { in: ["open", "in_progress", "pending_parts"] } },
+      include: { unit: { include: { property: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 5,
+    }),
+    prisma.messageThread.findMany({
+      where: {
+        organizationId,
+        landlordUserId: userId,
+        messages: { some: { isRead: false, senderRole: "tenant" } },
+      },
+      include: {
+        messages: {
+          where: { isRead: false, senderRole: "tenant" },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: { lastMessageAt: "desc" },
+      take: 5,
     }),
   ]);
 
   const totalExpected = monthPayments.reduce((s, p) => s + Number(p.amountDue), 0);
   const totalCollected = monthPayments.reduce((s, p) => s + Number(p.amountPaid), 0);
+
+  const tenantOverdueMap = new Map<string, {
+    tenantId: string;
+    tenant: { id: string; firstName: string; lastName: string };
+    lease: typeof overduePayments[0]["lease"];
+    totalOwed: number;
+  }>();
+  for (const p of overduePayments) {
+    const owed = Number(p.amountDue) - Number(p.amountPaid);
+    if (owed <= 0) continue;
+    const tenant = p.lease.tenants[0]?.tenant;
+    if (!tenant) continue;
+    const existing = tenantOverdueMap.get(tenant.id);
+    if (existing) {
+      existing.totalOwed += owed;
+    } else {
+      tenantOverdueMap.set(tenant.id, { tenantId: tenant.id, tenant, lease: p.lease, totalOwed: owed });
+    }
+  }
+  const overdueByTenant = Array.from(tenantOverdueMap.values())
+    .sort((a, b) => b.totalOwed - a.totalOwed)
+    .slice(0, 5);
+
+  const sortedMaintenance = [...openMaintenance].sort(
+    (a, b) => (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99)
+  );
+
+  // Sort lease pipeline: tenant_signed first, then sent, then draft
+  const signingOrder: Record<string, number> = { tenant_signed: 0, sent: 1, draft: 2 };
+  const sortedPipeline = [...leasePipeline].sort(
+    (a, b) => (signingOrder[a.signingStatus] ?? 99) - (signingOrder[b.signingStatus] ?? 99)
+  );
 
   return {
     properties: {
@@ -59,19 +132,21 @@ async function getDashboardData(organizationId: string) {
     },
     rent: { totalExpected, totalCollected },
     expiringLeases,
-    overduePayments,
-    maintenance: openMaintenance.reduce((a, g) => ({ ...a, [g.priority]: g._count }), {} as Record<string, number>),
+    overdueByTenant,
+    overdueCount: tenantOverdueMap.size,
     pendingApps,
-    recentActivity,
+    vacancyCount,
+    leasePipeline: sortedPipeline,
+    openMaintenance: sortedMaintenance,
+    unreadThreads,
   };
 }
 
 export default async function DashboardPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
-  const data = await getDashboardData(session.user.organizationId);
+  const data = await getDashboardData(session.user.organizationId, session.user.id);
 
-  const totalOpen = Object.values(data.maintenance).reduce((s: number, n: unknown) => s + (n as number), 0);
   const collectionPct = data.rent.totalExpected > 0
     ? Math.round((data.rent.totalCollected / data.rent.totalExpected) * 100)
     : 0;
@@ -85,7 +160,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {/* Migration CTA — shown only when no properties exist yet */}
+      {/* Migration CTA */}
       {data.properties.total === 0 && (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="flex items-center gap-5 py-5">
@@ -138,97 +213,218 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Wrench className="h-4 w-4" /> Maintenance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{totalOpen}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {data.maintenance.emergency ?? 0} emergency · {data.maintenance.high ?? 0} high
-            </p>
-          </CardContent>
-        </Card>
+        <Link href="/vacancy">
+          <Card className="hover:border-primary/40 transition-colors cursor-pointer">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <DoorOpen className="h-4 w-4" /> Vacancies
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-3xl font-bold ${data.vacancyCount > 0 ? "text-amber-600" : ""}`}>
+                {data.vacancyCount}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {data.vacancyCount === 0 ? "All units occupied" : "vacant units"}
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <ClipboardList className="h-4 w-4" /> Applications
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{data.pendingApps}</div>
-            <p className="text-xs text-muted-foreground mt-1">in progress</p>
-          </CardContent>
-        </Card>
+        <Link href="/applications">
+          <Card className="hover:border-primary/40 transition-colors cursor-pointer">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <ClipboardList className="h-4 w-4" /> Applications
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{data.pendingApps}</div>
+              <p className="text-xs text-muted-foreground mt-1">in progress</p>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Overdue Payments */}
-        <Card className="lg:col-span-1">
+        <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-destructive" />
               Overdue Rent
-              {data.overduePayments.length > 0 && (
-                <Badge variant="destructive" className="ml-auto">{data.overduePayments.length}</Badge>
+              {data.overdueCount > 0 && (
+                <Badge variant="destructive" className="ml-auto">{data.overdueCount}</Badge>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {data.overduePayments.length === 0 ? (
+            {data.overdueByTenant.length === 0 ? (
               <p className="text-sm text-muted-foreground">All payments are current.</p>
             ) : (
-              data.overduePayments.map((p) => {
-                const tenant = p.lease.tenants[0]?.tenant;
-                const owed = Number(p.amountDue) - Number(p.amountPaid);
-                return (
-                  <div key={p.id} className="flex items-center justify-between text-sm">
-                    <div>
-                      {tenant ? (
-                        <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
-                          {tenant.firstName} {tenant.lastName}
-                        </Link>
-                      ) : (
-                        <p className="font-medium">Unknown Tenant</p>
-                      )}
-                      <Link href={`/leases/${p.lease.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors">
-                        {p.lease.unit.property.name} · Unit {p.lease.unit.unitNumber}
-                      </Link>
-                    </div>
-                    <span className="text-destructive font-semibold">{formatCurrency(owed)}</span>
+              data.overdueByTenant.map(({ tenant, lease, totalOwed }) => (
+                <div key={tenant.id} className="flex items-center justify-between text-sm">
+                  <div>
+                    <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
+                      {tenant.firstName} {tenant.lastName}
+                    </Link>
+                    <Link href={`/leases/${lease.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors block">
+                      {lease.unit.property.name} · Unit {lease.unit.unitNumber}
+                    </Link>
                   </div>
-                );
-              })
+                  <span className="text-destructive font-semibold">{formatCurrency(totalOwed)}</span>
+                </div>
+              ))
             )}
-            {data.overduePayments.length > 0 && (
+            {data.overdueCount > 0 && (
               <Link href="/rent" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
             )}
           </CardContent>
         </Card>
 
-        {/* Expiring Leases */}
-        <Card className="lg:col-span-1">
+        {/* Lease Pipeline */}
+        <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Clock className="h-4 w-4 text-amber-500" />
-              Expiring Leases
-              {data.expiringLeases.length > 0 && (
-                <Badge variant="secondary" className="ml-auto">{data.expiringLeases.length}</Badge>
+              <FileText className="h-4 w-4 text-blue-500" />
+              Lease Pipeline
+              {data.leasePipeline.length > 0 && (
+                <Badge variant="secondary" className="ml-auto">{data.leasePipeline.length}</Badge>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {data.expiringLeases.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No leases expiring soon.</p>
+            {data.leasePipeline.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pending leases.</p>
             ) : (
-              data.expiringLeases.map((l) => {
+              data.leasePipeline.map((lease) => {
+                const tenant = lease.tenants.find((lt) => lt.isPrimary)?.tenant ?? lease.tenants[0]?.tenant;
+                return (
+                  <div key={lease.id} className="flex items-center justify-between text-sm">
+                    <div className="min-w-0">
+                      <Link href={`/leases/${lease.id}`} className="font-medium hover:text-primary transition-colors">
+                        {tenant ? `${tenant.firstName} ${tenant.lastName}` : "—"}
+                      </Link>
+                      <p className="text-muted-foreground text-xs">
+                        {lease.unit.property.name} · Unit {lease.unit.unitNumber}
+                      </p>
+                    </div>
+                    {lease.signingStatus === "tenant_signed" && (
+                      <span className="text-xs font-medium text-amber-600 shrink-0 ml-2">Needs your signature</span>
+                    )}
+                    {lease.signingStatus === "sent" && (
+                      <span className="text-xs text-blue-500 shrink-0 ml-2">Awaiting tenant</span>
+                    )}
+                    {lease.signingStatus === "draft" && (
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">Not sent</span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {data.leasePipeline.length > 0 && (
+              <Link href="/leases" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Open Maintenance */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Wrench className="h-4 w-4 text-orange-500" />
+              Open Maintenance
+              {data.openMaintenance.length > 0 && (
+                <Badge variant="secondary" className="ml-auto">{data.openMaintenance.length}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.openMaintenance.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No open maintenance requests.</p>
+            ) : (
+              data.openMaintenance.map((req) => (
+                <div key={req.id} className="flex items-start justify-between text-sm gap-2">
+                  <div className="min-w-0">
+                    <Link href={`/maintenance/${req.id}`} className="font-medium hover:text-primary transition-colors line-clamp-1">
+                      {req.title}
+                    </Link>
+                    {req.unit && (
+                      <p className="text-muted-foreground text-xs">
+                        {req.unit.property.name} · Unit {req.unit.unitNumber}
+                      </p>
+                    )}
+                  </div>
+                  <Badge className={`text-xs border shrink-0 ${PRIORITY_STYLES[req.priority] ?? ""}`}>
+                    {req.priority}
+                  </Badge>
+                </div>
+              ))
+            )}
+            {data.openMaintenance.length > 0 && (
+              <Link href="/maintenance" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Tenant Messages */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              Tenant Messages
+              {data.unreadThreads.length > 0 && (
+                <Badge variant="destructive" className="ml-auto">{data.unreadThreads.length}</Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.unreadThreads.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No unread messages.</p>
+            ) : (
+              data.unreadThreads.map((thread) => {
+                const latest = thread.messages[0];
+                return (
+                  <div key={thread.id} className="flex items-start justify-between text-sm gap-2">
+                    <div className="min-w-0">
+                      <Link href={`/messages`} className="font-medium hover:text-primary transition-colors line-clamp-1">
+                        {thread.subject}
+                      </Link>
+                      {latest && (
+                        <p className="text-muted-foreground text-xs line-clamp-1">{latest.body}</p>
+                      )}
+                    </div>
+                    {latest && (
+                      <span className="text-xs text-muted-foreground shrink-0">{formatRelativeTime(latest.createdAt)}</span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            {data.unreadThreads.length > 0 && (
+              <Link href="/messages" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Expiring Leases */}
+      {data.expiringLeases.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-500" />
+              Leases Expiring Soon
+              <Badge variant="secondary" className="ml-auto">{data.expiringLeases.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {data.expiringLeases.map((l) => {
                 const tenant = l.tenants[0]?.tenant;
                 const days = daysUntil(l.endDate);
                 return (
-                  <div key={l.id} className="flex items-center justify-between text-sm">
+                  <div key={l.id} className="flex items-center justify-between text-sm border rounded-lg px-3 py-2">
                     <div>
                       {tenant ? (
                         <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
@@ -237,62 +433,21 @@ export default async function DashboardPage() {
                       ) : (
                         <p className="font-medium">Unknown Tenant</p>
                       )}
-                      <Link href={`/leases/${l.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors">
-                        {l.unit.property.name} · Unit {l.unit.unitNumber}
-                      </Link>
+                      <p className="text-muted-foreground text-xs">{l.unit.property.name} · Unit {l.unit.unitNumber}</p>
                     </div>
-                    <Badge variant={days && days <= 30 ? "destructive" : "secondary"} className="text-xs">
-                      {days}d
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={days !== null && days <= 30 ? "destructive" : "secondary"} className="text-xs">
+                        {days}d
+                      </Badge>
+                      <Link href={`/renewals/${l.id}`} className="text-xs text-primary hover:underline">Renew →</Link>
+                    </div>
                   </div>
                 );
-              })
-            )}
-            {data.expiringLeases.length > 0 && (
-              <Link href="/leases" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
-            )}
+              })}
+            </div>
           </CardContent>
         </Card>
-
-        {/* Activity Feed */}
-        <Card className="lg:col-span-1">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {data.recentActivity.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recent activity.</p>
-            ) : (
-              data.recentActivity.map((e) => (
-                <div key={e.id} className="text-sm">
-                  <p className="text-foreground/80">
-                    <span className="font-medium">{e.actor?.name ?? "System"}</span>
-                    {" "}{formatEventType(e.eventType, e.entityType)}
-                    {" "}<span className="text-muted-foreground">{getEntityLabel(e)}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">{formatRelativeTime(e.createdAt)}</p>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      )}
     </div>
   );
-}
-
-function formatEventType(eventType: string, entityType: string) {
-  const map: Record<string, string> = {
-    "created": `added a ${entityType}`,
-    "updated": `updated a ${entityType}`,
-    "status_changed": `changed ${entityType} status`,
-    "payment_recorded": "recorded a payment",
-  };
-  return map[eventType] ?? eventType;
-}
-
-function getEntityLabel(e: { metadata: unknown; entityType: string }) {
-  if (!e.metadata || typeof e.metadata !== "object") return "";
-  const m = e.metadata as Record<string, string>;
-  return m.name ?? m.title ?? m.applicantName ?? "";
 }

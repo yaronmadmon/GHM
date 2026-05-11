@@ -1,13 +1,14 @@
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, ArrowLeft, MapPin, Wrench, Plus, Users } from "lucide-react";
+import { Building2, ArrowLeft, MapPin, Wrench, Plus, Users, BarChart2 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PropertyDeleteButton } from "@/components/properties/PropertyActions";
+import { PropertyPhotoGallery } from "@/components/properties/PropertyPhotoGallery";
 
 const STATUS_STYLES: Record<string, string> = {
   occupied: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
@@ -17,7 +18,7 @@ const STATUS_STYLES: Record<string, string> = {
 
 export default async function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   const property = await prisma.property.findFirst({
@@ -39,7 +40,6 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
   if (!property) notFound();
 
-  const cover = property.photos.find((p) => p.isCover) ?? property.photos[0];
   const occupiedUnits = property.units.filter((u) => u.status === "occupied").length;
 
   return (
@@ -59,12 +59,8 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
         <Badge className={`border shrink-0 ${STATUS_STYLES[property.status] ?? ""}`}>{property.status}</Badge>
       </div>
 
-      {/* Cover photo */}
-      {cover && (
-        <div className="rounded-xl overflow-hidden h-48 md:h-64">
-          <img src={cover.url} alt={property.name} className="w-full h-full object-cover" />
-        </div>
-      )}
+      {/* Photo gallery */}
+      <PropertyPhotoGallery propertyId={id} initialPhotos={property.photos} />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-3">
@@ -235,6 +231,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
         <Link href={`/leases/new?propertyId=${id}`}>
           <Button variant="outline" size="sm" className="gap-2">
             <Plus className="h-4 w-4" />Create lease
+          </Button>
+        </Link>
+        <Link href={`/properties/${id}/report`}>
+          <Button variant="outline" size="sm" className="gap-2">
+            <BarChart2 className="h-4 w-4" />Property Report
           </Button>
         </Link>
         <PropertyDeleteButton propertyId={id} propertyName={property.name} />

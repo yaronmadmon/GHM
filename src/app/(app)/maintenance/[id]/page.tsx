@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Wrench, MessageSquare, Send, ExternalLink } from "lucide-react";
+import { ArrowLeft, Wrench, MessageSquare, Send, ExternalLink, Camera, Trash2, Upload, Loader2 } from "lucide-react";
+import { useRef } from "react";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -38,6 +39,8 @@ export default function MaintenanceDetailPage() {
   const [comment, setComment] = useState("");
   const [posting, setPosting] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`/api/maintenance/${id}`).then((r) => r.json()).then(setRequest).catch(() => {});
@@ -79,6 +82,26 @@ export default function MaintenanceDetailPage() {
     const newComment = await res.json();
     setRequest((r: any) => ({ ...r, comments: [...(r.comments ?? []), newComment] }));
     setComment("");
+  }
+
+  async function uploadPhoto(file: File) {
+    if (file.size > 8 * 1024 * 1024) { toast.error("Max 8 MB per photo"); return; }
+    setUploadingPhoto(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/maintenance/${id}/photos`, { method: "POST", body: fd });
+    setUploadingPhoto(false);
+    if (!res.ok) { toast.error("Upload failed"); return; }
+    const photo = await res.json();
+    setRequest((r: any) => ({ ...r, photos: [...(r.photos ?? []), photo] }));
+    toast.success("Photo added");
+  }
+
+  async function deletePhoto(photoId: string) {
+    const res = await fetch(`/api/maintenance/${id}/photos/${photoId}`, { method: "DELETE" });
+    if (!res.ok) { toast.error("Failed to delete"); return; }
+    setRequest((r: any) => ({ ...r, photos: r.photos.filter((p: any) => p.id !== photoId) }));
+    toast.success("Photo removed");
   }
 
   if (!request) return <div className="p-6 text-muted-foreground">Loading...</div>;
@@ -187,15 +210,41 @@ export default function MaintenanceDetailPage() {
       </Card>
 
       {/* Photos */}
-      {request.photos?.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {request.photos.map((photo: any) => (
-            <a key={photo.id} href={photo.url} target="_blank" rel="noopener noreferrer">
-              <img src={photo.url} alt="Maintenance photo" className="rounded-lg w-full h-32 object-cover hover:opacity-90 transition-opacity" />
-            </a>
-          ))}
-        </div>
-      )}
+      <div className="space-y-2">
+        {request.photos?.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {request.photos.map((photo: any) => (
+              <div key={photo.id} className="relative group rounded-lg overflow-hidden aspect-video bg-muted">
+                <a href={photo.url} target="_blank" rel="noopener noreferrer">
+                  <img src={photo.url} alt="Maintenance photo" className="w-full h-full object-cover" />
+                </a>
+                <button
+                  onClick={() => deletePhoto(photo.id)}
+                  className="absolute top-1.5 right-1.5 p-1 rounded bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                  title="Delete photo"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => photoInputRef.current?.click()}
+          disabled={uploadingPhoto}
+          className="flex items-center gap-2 px-3 py-2 border border-dashed rounded-lg text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+        >
+          {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+          {uploadingPhoto ? "Uploading…" : "Add photo"}
+        </button>
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ""; }}
+        />
+      </div>
 
       {/* Comments */}
       <Card>

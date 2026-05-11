@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -17,7 +17,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export default async function ApplicationsPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   const [applications, invites, properties] = await Promise.all([

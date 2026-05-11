@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 interface CreateNotificationInput {
   userId: string;
-  type: "message" | "payment_due" | "maintenance_update" | "lease_expiry";
+  type: "message" | "payment_due" | "maintenance_update" | "lease_expiry" | "new_application";
   title: string;
   body: string;
   relatedUrl?: string;

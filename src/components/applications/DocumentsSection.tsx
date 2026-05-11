@@ -17,11 +17,14 @@ interface AppDocument {
   createdAt: string;
 }
 
-const REQUIRED_TYPES = ["pay_stub", "id", "bank_statement"] as const;
+const REQUIRED_TYPES = ["pay_stub", "government_id", "bank_statement"] as const;
 const TYPE_LABELS: Record<string, string> = {
-  pay_stub: "Pay Stub",
-  id: "Government ID",
+  government_id: "Government ID",
+  pay_stub: "Pay Stub / Proof of Income",
   bank_statement: "Bank Statement",
+  tax_return: "Tax Return",
+  previous_lease: "Previous Lease",
+  id: "Government ID",
   other: "Other",
 };
 
@@ -103,9 +106,17 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="icon" className="h-7 w-7"><ExternalLink className="h-3.5 w-3.5" /></Button>
-                </a>
+                {doc.url && doc.url !== "[stored]" && (
+                  doc.url.startsWith("data:") ? (
+                    <a href={doc.url} download={doc.name}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Download"><ExternalLink className="h-3.5 w-3.5" /></Button>
+                    </a>
+                  ) : (
+                    <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Open"><ExternalLink className="h-3.5 w-3.5" /></Button>
+                    </a>
+                  )
+                )}
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(doc.id)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -128,7 +139,7 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
               <Select value={form.docType} onValueChange={(v) => setForm((f) => ({ ...f, docType: v ?? "other" }))}>
                 <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {Object.entries(TYPE_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                  {Object.entries(TYPE_LABELS).filter(([v]) => v !== "id").map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

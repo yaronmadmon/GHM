@@ -137,11 +137,27 @@ model Unit {
   transactions        Transaction[]
   applicationInvites  ApplicationInvite[]
   applications        Application[]
+  photos              UnitPhoto[]
 
   @@unique([propertyId, unitNumber])
   @@index([propertyId])
   @@index([status])
   @@map("units")
+}
+
+model UnitPhoto {
+  id        String   @id @default(cuid())
+  unitId    String
+  url       String   @db.Text
+  fileKey   String?
+  caption   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId])
+  @@map("unit_photos")
 }
 
 // ─────────────────────────────────────────
@@ -506,6 +522,43 @@ model Application {
   hasVehicles         Boolean @default(false)
   vehiclesDescription String?
 
+  // Identity & Move-In
+  middleName          String?
+  ssnLast4            String?
+  governmentIdType    String?   // drivers_license | state_id | passport | other
+  desiredMoveInDate   DateTime?
+  intendedLeaseTerm   String?   // e.g. "12 months", "month-to-month"
+  numberOfOccupants   Int?
+
+  // Additional employment
+  selfEmployed              Boolean  @default(false)
+  additionalIncomeSource    String?
+  additionalIncomeMonthly   Decimal? @db.Decimal(10, 2)
+
+  // Rental history additions
+  currentAddressStartDate String?
+  previousLandlordName    String?
+  previousLandlordPhone   String?
+  everEvicted             Boolean?
+  evictionExplanation     String?
+
+  // Background
+  hasCriminalHistory         Boolean?
+  criminalHistoryExplanation String?
+  hasBankruptcy              Boolean?
+  bankruptcyExplanation      String?
+
+  // Emergency contact
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
+
+  // Additional occupants (JSON array of {name, relationship, dateOfBirth})
+  additionalOccupants Json?
+
+  // Applicant notes
+  additionalNotes String?
+
   // Background check
   backgroundCheckStatus String?
   backgroundCheckNotes  String?
@@ -565,7 +618,8 @@ model ApplicationDocument {
   applicationId String
   name          String
   url           String
-  docType       String? // pay_stub | id | bank_statement | other
+  fileKey       String?  // Vercel Blob key
+  docType       String?  // government_id | pay_stub | bank_statement | tax_return | previous_lease | other
   createdAt     DateTime @default(now())
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)

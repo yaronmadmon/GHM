@@ -1,6 +1,24 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 @AGENTS.md
 
 # GHM — Property Management App
+
+## Commands
+
+```bash
+npm run dev              # start dev server
+npm run build            # prisma generate + next build
+npx tsc --noEmit         # type-check without building
+npx prisma db push       # sync schema to Neon (use this, NOT prisma migrate)
+npx prisma generate      # regenerate client after schema change
+npx prisma studio        # browse data locally
+npx vercel --prod --yes  # deploy to production
+```
+
+No test suite exists.
 
 ## Stack
 | Layer | Tech |
@@ -10,13 +28,19 @@
 | Auth | NextAuth v5 beta (`@auth/prisma-adapter`) — credentials provider |
 | Styling | Tailwind CSS v4 (no `tailwind.config.js` — config lives in CSS variables) |
 | UI Components | shadcn/ui → `src/components/ui/` |
-| Email | Resend (`src/lib/email.ts`) |
+| Email | Resend (`src/lib/email.ts`) — **initialize `new Resend()` lazily inside handler functions, never at module top-level** |
 | AI | OpenAI SDK — gpt-4o for chat widget (streaming, 24 tools) and smart import (vision + text) |
 | Toasts | Sonner — `import { toast } from "sonner"` |
-| File upload | UploadThing |
+| File upload | base64 data URIs stored in PostgreSQL (fallback); auto-upgrades to Vercel Blob when `BLOB_READ_WRITE_TOKEN` env var is present |
 | Forms | react-hook-form + zod |
 | Charts | Recharts |
 | Dark mode | next-themes — class-based, default dark, persisted in localStorage |
+
+## Critical Next.js 16 Patterns
+
+- **`params` is a Promise**: always `const { id } = await params` in every route handler and page that uses params
+- **React hooks must never be called conditionally**: hooks violations cause "Cannot read properties of undefined (reading 'subscribe')" at runtime — all `useState`/`useEffect`/`useRouter` calls must be at the top level of the component, before any early returns or conditionals
+- **Resend lazy init**: `const resend = new Resend(process.env.RESEND_API_KEY)` must live inside the async handler body — Vercel build fails if it's at module level
 
 ## Environment Variables (`.env.local`)
 ```
@@ -42,7 +66,7 @@ src/
       properties/             # Property list; [id]/ detail + photo gallery
         [id]/units/new/       # Add unit to property
         new/                  # Create property
-      tenants/                # Tenant list; [id]/ detail; new/
+      tenants/                # Tenant list; [id]/ detail; new/; [id]/ledger/ print-optimized full ledger
       leases/                 # Lease list; [id]/ detail; new/
       rent/                   # Rent ledger — record payments, view history
       maintenance/            # Request list; [id]/ detail with comments
@@ -64,7 +88,7 @@ src/
       login/                  # Magic-link login entry point
       auth/[token]/           # Validates magic link token, issues session cookie
       setup/[token]/          # First-time portal account setup
-    apply/[token]/            # Public rental application form (no auth)
+    apply/[token]/            # Public 9-step rental application form (no auth)
     lease-sign/[token]/       # Public e-signature page (no auth)
     api/
       auth/[...nextauth]/     # NextAuth handler
@@ -98,6 +122,8 @@ src/
         request-link/         # Send new magic link
         setup/[token]/        # First-time account setup
       apply/[token]/          # Process public application submission
+      apply/[token]/upload/   # Public file upload for applicants (base64 fallback, upgrades to Vercel Blob)
+      tenants/[id]/ledger/send/ # Email ledger PDF to attorney/social worker via Resend
       lease-sign/[token]/     # Process e-signature submission
       cron/
         check-expiring-leases/  # Notify landlords of leases expiring within 60 days
@@ -117,14 +143,18 @@ src/
                               # requirePortalSession(), setPortalCookie(), clearPortalCookie()
     email.ts                  # Resend wrappers:
                               #   sendApplicationInvite, sendLeaseForSigning,
-                              #   sendLeaseSigned, sendPortalInvite
+                              #   sendLeaseSigned, sendPortalInvite,
+                              #   sendNewApplicationAlert, sendLedgerReport
     notifications.ts          # createNotification(input), createNotifications(inputs[])
-                              # Types: message | payment_due | maintenance_update | lease_expiry
+                              # Types: message | payment_due | maintenance_update | lease_expiry | new_application
     utils.ts                  # cn, formatCurrency, formatDate, formatRelativeTime,
                               # daysUntil, getInitials
     ai/handlers.ts            # AI chat tool implementations (24 tools, all Prisma)
     ai/tools.ts               # AI chat tool definitions (OpenAI function-calling format)
+  contexts/
+    MigrationContext.tsx      # Upload → extract → conflict check state (wraps entire app shell via AppShell)
   components/
+    GlobalSearch.tsx          # ⌘K search — GlobalSearch (sidebar trigger) + GlobalSearchTrigger (mobile icon)
     ThemeProvider.tsx         # next-themes wrapper — defaultTheme="dark", attribute="class"
     ThemeToggle.tsx           # Sun/Moon toggle button — variant="sidebar" | "menu"
     layout/
@@ -169,11 +199,12 @@ All API routes return `Response.json(...)`. Errors return `{ error: string }` wi
 ## AI Chat Widget
 
 `src/components/ai/ChatWidget.tsx` — floating assistant, bottom-right corner.
-- **Model**: gpt-4o via `/api/ai/chat`
+- **Model**: gpt-4o via `/api/ai/chat` (route has `export const maxDuration = 60` for Vercel timeout)
 - **Tools**: 24 tools defined in `src/lib/ai/tools.ts` (OpenAI function-calling format)
 - **Voice input**: Web Speech API (`SpeechRecognition`) — auto-sends on recognition end
 - **Voice output**: Web Speech API (`SpeechSynthesis`) — speaks assistant responses
 - **Tool loop**: `finish_reason === "tool_calls"` → call handlers → send `role: "tool"` results → repeat
+- **Rule**: Any new workflow action must also get a corresponding tool in `tools.ts` + handler in `handlers.ts`
 
 `src/lib/ai/handlers.ts` — implements all 24 tools with direct Prisma calls. Signature: `handleTool(name, input, organizationId, userId)`.
 
@@ -186,11 +217,12 @@ All API routes return `Response.json(...)`. Errors return `{ error: string }` wi
   - CSV/XLSX: parsed to CSV text, then sent as text
   - Pasted text: wrapped as a File("pasted.csv") on the frontend, same text path
 - `check-conflicts` — `{ emails: string[] }` → `{ existing: string[] }`
-- `commit` — `{ records, options: { createLeases, createPayments } }` → creates tenants / properties / units / leases / payments
+- `commit` — `{ records, options: { createLeases, createPayments } }` → creates tenants / properties / units / leases / payments / transactions
   - Tenant dedup: matches by email OR phone OR full name (case-insensitive)
   - Property dedup: matches by name or street address
   - Unit dedup: matches by unitNumber within property
-  - Payment dedup: upserts on `(leaseId, periodYear, periodMonth)` — safe to re-import
+  - Payment dedup: upserts on `(leaseId, periodYear, periodMonth)` — safe to re-import; multiple payments per month are **summed**, not replaced
+  - `ledgerEntries` (fees, legal charges, credits) → committed as `Transaction` records — **never** include rent charges or payments in ledgerEntries
 
 Front-end at `(app)/migration/page.tsx`:
 - Review screen shows tenant **cards** (not a table) — one card per tenant, click-to-edit fields
@@ -221,6 +253,7 @@ Currently triggered by:
 - Message reply (`api/messages/[id]/route.ts`)
 - Maintenance status change (`api/maintenance/[id]/route.ts`)
 - Expiring lease cron (`api/cron/check-expiring-leases/route.ts`)
+- New application submitted (`api/apply/[token]/route.ts` — also fires `sendNewApplicationAlert` email to all org users)
 
 `NotificationBell` polls every 60 s. `side="right"` for sidebar (opens rightward), `side="bottom"` for mobile top bar (opens downward).
 
@@ -234,6 +267,8 @@ Requires `RESEND_API_KEY`. Gracefully no-ops if key is missing (throws with clea
 | `sendLeaseForSigning` | Lease sent for tenant signature |
 | `sendLeaseSigned` | Tenant signed → landlord countersign prompt |
 | `sendPortalInvite` | Tenant granted portal access |
+| `sendNewApplicationAlert` | Applicant submits application → all org users notified |
+| `sendLedgerReport` | Ledger emailed to attorney/social worker/court |
 
 ## Data Model — Key Fields
 
@@ -245,26 +280,24 @@ Requires `RESEND_API_KEY`. Gracefully no-ops if key is missing (throws with clea
 
 **`MaintenanceRequest`** — `status`: `open | in_progress | pending_parts | completed | cancelled`. `priority`: `low | medium | high | emergency`.
 
-**`Notification`** — `userId` is a landlord User ID (not tenant). `type`: `message | payment_due | maintenance_update | lease_expiry`.
+**`Notification`** — `userId` is a landlord User ID (not tenant). `type`: `message | payment_due | maintenance_update | lease_expiry | new_application`.
 
 **`PortalSession`** — `type`: `magic` (short-lived login link) | `session` (active session, 7-day cookie).
 
 **`Transaction`** — `type`: `income | expense`. `category`: `rent | late_fee | deposit | repair | insurance | tax | utility | management | other`.
 
-## Database Operations
+## Tenant Ledger (`/tenants/[id]/ledger`)
 
-```bash
-npx prisma db push      # sync schema to Neon — use this, NOT prisma migrate
-npx prisma generate     # regenerate client after schema change
-npx prisma studio       # browse data locally
-```
-
-All data is in **Neon PostgreSQL** (cloud). Never store data locally.
+`tenants/[id]/ledger/LedgerView.tsx` — client component, print-optimized.
+- Merges `RentPayment` records + `Transaction` records into one chronological table (charges, payments, running balance)
+- Print CSS uses `visibility: hidden` on `body *` + `visibility: visible` on `.ledger-document` — only the document renders in print/PDF
+- "Print / Save as PDF" calls `window.print()` — no library needed
+- "Send by Email" sheet → `POST /api/tenants/[id]/ledger/send` → Resend HTML email
 
 ## Do Not
-- Store secrets in code — `.env.local` only, never committed
 - Run `prisma migrate` — always `prisma db push`
-- Add sidebar nav links for one-time flows (migration is reached via CTA cards, not the nav)
-- Mock the database in tests — use real Neon DB
+- Initialize `new Resend(...)` at module top-level — always inside the async handler body
+- Call React hooks conditionally — all `useState`, `useEffect`, `useRouter` etc. must be at the component top level before any `if` or early return
 - Use `Decimal` values from Prisma directly in arithmetic — convert with `Number(value)` first
 - Use Anthropic SDK — the entire AI layer uses OpenAI (gpt-4o)
+- Add sidebar nav links for one-time flows (migration is reached via dashboard CTA, not nav)

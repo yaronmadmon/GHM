@@ -349,10 +349,18 @@ export function LedgerView({ tenant, activeLease, orgName, tenantId }: Props) {
       {/* Print CSS */}
       <style>{`
         @media print {
-          body > * { display: none !important; }
-          .ledger-document { display: block !important; }
-          .print\\:hidden { display: none !important; }
-          @page { margin: 1in; size: letter; }
+          body * { visibility: hidden; }
+          .ledger-document, .ledger-document * { visibility: visible; }
+          .ledger-document {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            max-width: none;
+            padding: 0;
+            margin: 0;
+          }
+          @page { margin: 0.75in; size: letter; }
         }
       `}</style>
 

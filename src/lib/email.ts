@@ -9,6 +9,19 @@ async function send(to: string, subject: string, html: string) {
   await resend.emails.send({ from: FROM, to, subject, html });
 }
 
+export async function sendNewApplicationAlert(to: string, applicantName: string, propertyName: string, applicationUrl: string) {
+  await send(to, `New application from ${applicantName} — ${propertyName}`, `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+      <h2>New Rental Application Received</h2>
+      <p><strong>${applicantName}</strong> has submitted a rental application for <strong>${propertyName}</strong>.</p>
+      <a href="${applicationUrl}" style="display:inline-block;background:#000;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin:16px 0">
+        Review Application
+      </a>
+      <p style="color:#666;font-size:14px">Log in to GHM to review documents, run screening, and approve or deny.</p>
+    </div>
+  `);
+}
+
 export async function sendApplicationInvite(to: string, name: string, applyUrl: string, propertyName: string) {
   await send(to, `You've been invited to apply for ${propertyName}`, `
     <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
@@ -24,16 +37,30 @@ export async function sendApplicationInvite(to: string, name: string, applyUrl: 
   `);
 }
 
-export async function sendLeaseForSigning(to: string, tenantName: string, signUrl: string, propertyName: string) {
+export async function sendLeaseForSigning(to: string, tenantName: string, signUrl: string, propertyName: string, notes?: string) {
   await send(to, `Your lease is ready to sign — ${propertyName}`, `
     <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
       <h2>Lease Ready for Your Signature</h2>
       <p>Hi ${tenantName},</p>
       <p>Your lease agreement for <strong>${propertyName}</strong> is ready. Please review and sign it at your earliest convenience.</p>
+      ${notes ? `<div style="background:#f5f5f5;padding:12px 16px;border-radius:6px;margin:12px 0;color:#333"><strong>Message from your landlord:</strong><br/>${notes}</div>` : ""}
       <a href="${signUrl}" style="display:inline-block;background:#000;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin:16px 0">
         Review &amp; Sign Lease
       </a>
       <p style="color:#666;font-size:14px">Or copy this link: ${signUrl}</p>
+    </div>
+  `);
+}
+
+export async function sendNonRenewalNotice(to: string, tenantName: string, propertyName: string, endDate: Date, notes?: string) {
+  const formatted = endDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  await send(to, `Notice: Lease non-renewal — ${propertyName}`, `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+      <h2>Lease Non-Renewal Notice</h2>
+      <p>Hi ${tenantName},</p>
+      <p>This is to inform you that your lease at <strong>${propertyName}</strong> will not be renewed. Your lease ends on <strong>${formatted}</strong>.</p>
+      ${notes ? `<div style="background:#f5f5f5;padding:12px 16px;border-radius:6px;margin:12px 0;color:#333"><strong>Additional note:</strong><br/>${notes}</div>` : ""}
+      <p>Please make arrangements accordingly. Contact your landlord if you have any questions.</p>
     </div>
   `);
 }
