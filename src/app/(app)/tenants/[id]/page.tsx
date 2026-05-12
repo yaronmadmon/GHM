@@ -25,7 +25,7 @@ import {
   Users,
 } from "lucide-react";
 import { formatCurrency, formatDate, formatRelativeTime, getInitials } from "@/lib/utils";
-import { calculateLeaseBalance } from "@/lib/rent-ledger";
+import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 import { TenantMessageButton } from "@/components/tenants/TenantMessageButton";
 import { SendPortalInviteButton } from "@/components/tenants/SendPortalInviteButton";
 import { TenantActions } from "@/components/tenants/TenantActions";
@@ -171,7 +171,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
   const occupants = parseOccupants(app?.additionalOccupants);
   const leaseTenants = activeLease?.tenants ?? [];
   const currentBalance = activeLease
-    ? calculateLeaseBalance({ rentPayments: activeLease.rentPayments, transactions: activeLease.transactions })
+    ? calculateLeaseOutstandingBalance({ rentPayments: activeLease.rentPayments, transactions: activeLease.transactions })
     : 0;
   const latestRentPayment = latestDate(activeLease?.rentPayments.map((payment) => payment.paidAt ?? null) ?? []);
   const latestLedgerPayment = latestDate(

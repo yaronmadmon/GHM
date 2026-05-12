@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { addDays } from "date-fns";
 import { formatCurrency, formatRelativeTime, daysUntil } from "@/lib/utils";
-import { calculateLeaseBalance } from "@/lib/rent-ledger";
+import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -64,7 +64,7 @@ async function getDashboardData(organizationId: string, userId: string) {
         rentPayments: true,
         transactions: true,
         unit: { include: { property: true } },
-        tenants: { include: { tenant: true } },
+        tenants: { include: { tenant: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       },
     }),
     prisma.unit.count({ where: { property: { organizationId }, leases: { none: { status: "active" } } } }),
@@ -111,7 +111,7 @@ async function getDashboardData(organizationId: string, userId: string) {
     totalOwed: number;
   }>();
   for (const lease of activeRentLeases) {
-    const owed = calculateLeaseBalance({
+    const owed = calculateLeaseOutstandingBalance({
       rentPayments: lease.rentPayments,
       transactions: lease.transactions,
     });
@@ -344,7 +344,7 @@ export default async function DashboardPage() {
                 )}
                 <div className="mt-1 flex items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    {data.overdueCount} tenant{data.overdueCount === 1 ? "" : "s"} owe rent
+                    {data.overdueCount} tenant{data.overdueCount === 1 ? "" : "s"} with a balance
                   </p>
                   <details className="group relative">
                     <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary hover:underline">
@@ -352,7 +352,7 @@ export default async function DashboardPage() {
                     </summary>
                     <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg">
                       <div className="mb-2 flex items-center justify-between border-b pb-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Who owes rent</p>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Outstanding balances</p>
                         <p className="text-xs font-semibold text-destructive">{formatCurrency(data.overdueTotal)}</p>
                       </div>
                       <div className="max-h-80 space-y-3 overflow-y-auto">

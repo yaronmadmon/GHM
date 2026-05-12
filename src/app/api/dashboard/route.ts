@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { addDays } from "date-fns";
-import { calculateLeaseBalance } from "@/lib/rent-ledger";
+import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 
 export async function GET() {
   try {
@@ -34,7 +34,7 @@ export async function GET() {
         },
         include: {
           unit: { include: { property: true } },
-          tenants: { include: { tenant: true } },
+          tenants: { include: { tenant: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
         },
         orderBy: { endDate: "asc" },
       }),
@@ -78,7 +78,7 @@ export async function GET() {
     const overduePayments = activeRentLeases
       .map((lease) => ({
         lease,
-        ledgerBalance: calculateLeaseBalance({
+        ledgerBalance: calculateLeaseOutstandingBalance({
           rentPayments: lease.rentPayments,
           transactions: lease.transactions,
         }),

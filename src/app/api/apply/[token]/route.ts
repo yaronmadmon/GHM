@@ -150,10 +150,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       },
     });
 
-    // Notify all users in the organization
+    // Notify staff users in the organization. Tenant portal users should not
+    // receive landlord-side application alerts.
     const orgUsers = await prisma.user.findMany({
-      where: { organizationId: invite.organizationId },
-      select: { id: true, email: true },
+      where: { organizationId: invite.organizationId, role: { in: ["owner", "member", "admin"] } },
+      select: { id: true, email: true, role: true },
     });
     const property = await prisma.property.findUnique({
       where: { id: invite.propertyId },
@@ -175,17 +176,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     );
 
     // Email notifications (fire-and-forget — don't fail the request if email fails)
-    Promise.all(
+    const emailResults = await Promise.allSettled(
       orgUsers
         .filter((u) => u.email)
         .map((u) =>
-          sendNewApplicationAlert(u.email!, applicantName, propertyName, applicationUrl).catch(
-            (e) => console.error("Failed to send application alert email:", e)
-          )
+          sendNewApplicationAlert(u.email!, applicantName, propertyName, applicationUrl)
         )
     );
+    const failedEmailResults = emailResults.filter((result) => result.status === "rejected");
+    if (failedEmailResults.length > 0) {
+      console.error("Failed to send application alert email(s):", failedEmailResults);
+    }
 
-    return Response.json({ id: application.id, status: "submitted" }, { status: 201 });
+    return Response.json({
+      id: application.id,
+      status: "submitted",
+      notificationsCreated: orgUsers.length,
+      emailsAttempted: emailResults.length,
+      emailsFailed: failedEmailResults.length,
+    }, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return Response.json({ error: err.issues ?? [err.message] }, { status: 400 });
     console.error(err);

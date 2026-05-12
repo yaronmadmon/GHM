@@ -1,7 +1,7 @@
 import { requireOrg } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
-import { calculateLeaseBalance } from "@/lib/rent-ledger";
+import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 import { estimatePropertyExpenses } from "@/lib/expense-estimator";
 import OpenAI from "openai";
 
@@ -85,7 +85,7 @@ async function buildPortfolioSnapshot(organizationId: string) {
         rentPayments: true,
         transactions: true,
         unit: { include: { property: true } },
-        tenants: { include: { tenant: true } },
+        tenants: { include: { tenant: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       },
     }),
     prisma.maintenanceRequest.findMany({
@@ -163,22 +163,56 @@ async function buildPortfolioSnapshot(organizationId: string) {
   const monthlyActualRentRoll = activeRents.reduce((sum, rent) => sum + rent, 0);
   const vacancyLossMonthly = monthlyPotentialRent - monthlyActualRentRoll;
 
-  const income12 = transactions
-    .filter((txn) => txn.type === "income")
+  // Build trailing-12-month period keys for RentPayment filtering
+  const trailing12PeriodKeys = new Set(
+    Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      return `${d.getFullYear()}-${d.getMonth() + 1}`;
+    }),
+  );
+
+  // All rent payments from active leases, indexed by period
+  const allRentPayments = activeLeases.flatMap((l) => l.rentPayments);
+
+  // Income from RentPayment table (authoritative for actual rent received)
+  // Use Math.max(0, ...) to ignore negative/credit entries in amountPaid
+  const rentCollected12 = allRentPayments
+    .filter((rp) => trailing12PeriodKeys.has(`${rp.periodYear}-${rp.periodMonth}`))
+    .reduce((sum, rp) => sum + Math.max(0, numberValue(rp.amountPaid)), 0);
+  const rentCollectedYtd = allRentPayments
+    .filter((rp) => rp.periodYear === now.getFullYear())
+    .reduce((sum, rp) => sum + Math.max(0, numberValue(rp.amountPaid)), 0);
+  const rentCollectedMonth = allRentPayments
+    .filter((rp) => rp.periodYear === now.getFullYear() && rp.periodMonth === now.getMonth() + 1)
+    .reduce((sum, rp) => sum + Math.max(0, numberValue(rp.amountPaid)), 0);
+
+  // Non-rent transaction income (late fees, deposits, etc.)
+  // Exclude category="rent" transactions — those are rent charge records, not cash received.
+  // The RentPayment table is the authoritative source for rent income.
+  const isNonRentIncome = (txn: { type: string; category: string }) =>
+    txn.type === "income" && txn.category !== "rent";
+
+  const otherIncome12 = transactions
+    .filter(isNonRentIncome)
     .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
+  const otherIncomeYtd = transactions
+    .filter((txn) => isNonRentIncome(txn) && txn.date >= startOfYear)
+    .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
+  const otherIncomeMonth = transactions
+    .filter((txn) => isNonRentIncome(txn) && txn.date >= startOfMonth)
+    .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
+
+  const income12 = rentCollected12 + otherIncome12;
+  const incomeYtd = rentCollectedYtd + otherIncomeYtd;
+  const incomeMonth = rentCollectedMonth + otherIncomeMonth;
+
   const expenses12 = transactions
     .filter((txn) => txn.type === "expense")
     .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
   const net12 = income12 - expenses12;
 
-  const incomeYtd = transactions
-    .filter((txn) => txn.type === "income" && txn.date >= startOfYear)
-    .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
   const expensesYtd = transactions
     .filter((txn) => txn.type === "expense" && txn.date >= startOfYear)
-    .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
-  const incomeMonth = transactions
-    .filter((txn) => txn.type === "income" && txn.date >= startOfMonth)
     .reduce((sum, txn) => sum + numberValue(txn.amount), 0);
   const expensesMonth = transactions
     .filter((txn) => txn.type === "expense" && txn.date >= startOfMonth)
@@ -212,7 +246,7 @@ async function buildPortfolioSnapshot(organizationId: string) {
   const overdueItems = activeLeases
     .map((lease) => {
       const tenant = lease.tenants[0]?.tenant;
-      const owed = calculateLeaseBalance({ rentPayments: lease.rentPayments, transactions: lease.transactions });
+      const owed = calculateLeaseOutstandingBalance({ rentPayments: lease.rentPayments, transactions: lease.transactions });
       return {
         lease,
         tenant,
@@ -299,17 +333,21 @@ async function buildPortfolioSnapshot(organizationId: string) {
     financials: {
       trailingTwelveMonths: {
         income: Math.round(income12),
+        rentCollected: Math.round(rentCollected12),
+        otherIncome: Math.round(otherIncome12),
         expenses: Math.round(expenses12),
         net: Math.round(net12),
         expenseRatio: income12 > 0 ? Math.round((expenses12 / income12) * 100) : null,
       },
       yearToDate: {
         income: Math.round(incomeYtd),
+        rentCollected: Math.round(rentCollectedYtd),
         expenses: Math.round(expensesYtd),
         net: Math.round(incomeYtd - expensesYtd),
       },
       currentMonth: {
         income: Math.round(incomeMonth),
+        rentCollected: Math.round(rentCollectedMonth),
         expenses: Math.round(expensesMonth),
         net: Math.round(incomeMonth - expensesMonth),
       },
@@ -328,9 +366,11 @@ async function buildPortfolioSnapshot(organizationId: string) {
       pendingApplicationCount: pendingApplications.length,
     },
     calculationNotes: {
+      income: "financials.*.income = rentCollected (from RentPayment records) + otherIncome (late fees, deposits, etc. from Transaction records, excluding rent-charge category). Does NOT double-count: rent-category Transactions are charges owed, not cash received.",
+      rentRoll: "portfolio.monthlyActualRentRoll is the sum of active lease rent amounts — the contractual obligation. rentCollected is the actual cash received per the payment ledger.",
       overdueBalance: "Net open balance across active lease ledgers, calculated from rent payment rows plus imported ledger transactions. It uses recorded app data only.",
       vacancyLoss: "Estimated from vacant units multiplied by comparable in-portfolio rents when available, then prior rent or portfolio median rent.",
-      expenses: "Uses recorded Transaction rows from the trailing 12 months.",
+      expenses: "Uses Transaction rows from the trailing 12 months (type=expense). Excludes misclassified tenant-payment entries that were cleaned up.",
     },
     propertyDetails,
     focusItems: {
@@ -513,6 +553,7 @@ async function generateChatAnswer(
           "You are GHM Financial Advisor, a calm and practical financial coach for landlords and property managers.",
           "Use only the provided portfolio snapshot and conversation history. Do not invent external market comps, laws, cap rates, or facts.",
           "Do not invent property names, balances, expense categories, trends, or causes. If the answer is not supported by the snapshot, say what data is missing.",
+          "IMPORTANT: Income figures use snapshot.financials.*.income which equals rentCollected (actual cash received per payment ledger) + otherIncome (fees/deposits). Do NOT confuse this with portfolio.monthlyActualRentRoll (contractual obligation). Use rentCollected for cash-in-hand analysis.",
           "Collections risk must use snapshot.risks.overdueBalance, which is net unpaid rent only.",
           "Answer in plain English with concrete numbers where possible. Prioritize actions, risks, and tradeoffs.",
           "Keep the response concise: 2-4 short paragraphs or a short bullet list when that is clearer.",

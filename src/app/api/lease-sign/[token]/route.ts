@@ -2,6 +2,16 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { sendLeaseSigned, APP_URL } from "@/lib/email";
+import { buildDefaultLeaseTemplate } from "@/lib/default-lease-template";
+
+type Occupant = { name?: string };
+
+function parseOccupants(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => item && typeof item === "object" ? (item as Occupant).name : null)
+    .filter((name): name is string => Boolean(name));
+}
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
@@ -10,10 +20,29 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ token:
     include: {
       unit: { include: { property: true } },
       tenants: { include: { tenant: true } },
+      convertedFrom: true,
     },
   });
   if (!lease) return Response.json({ error: "Invalid or expired signing link" }, { status: 404 });
   if (lease.signingStatus === "fully_signed") return Response.json({ error: "This lease has already been fully signed" }, { status: 410 });
+
+  const residents = lease.tenants.map((link) => `${link.tenant.firstName} ${link.tenant.lastName}`);
+  const property = lease.unit.property;
+  const sections = buildDefaultLeaseTemplate({
+    landlordName: "Green Hill Management Corp",
+    landlordAddress: "1567 E 10th St, Brooklyn, NY 11230",
+    landlordPhone: "(718) 664-4026",
+    residents,
+    occupants: parseOccupants(lease.convertedFrom?.additionalOccupants),
+    propertyAddress: `${property.addressLine1}, ${property.city}, ${property.state} ${property.zip}`,
+    leaseStart: lease.startDate,
+    leaseEnd: lease.endDate,
+    monthlyRent: Number(lease.rentAmount),
+    proratedRent: Number(lease.rentAmount),
+    securityDeposit: Number(lease.depositAmount ?? 0),
+    lateFeeAmount: Number(lease.lateFeeAmount ?? 75),
+    returnedPaymentFee: 50,
+  });
 
   return Response.json({
     id: lease.id,
@@ -26,6 +55,13 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ token:
     rentAmount: Number(lease.rentAmount),
     depositAmount: Number(lease.depositAmount ?? 0),
     tenantName: lease.tenants[0] ? `${lease.tenants[0].tenant.firstName} ${lease.tenants[0].tenant.lastName}` : "",
+    residents,
+    occupants: parseOccupants(lease.convertedFrom?.additionalOccupants),
+    landlordName: "Green Hill Management Corp",
+    landlordAddress: "1567 E 10th St, Brooklyn, NY 11230",
+    landlordPhone: "(718) 664-4026",
+    propertyAddress: `${property.addressLine1}, ${property.city}, ${property.state} ${property.zip}`,
+    sections,
   });
 }
 

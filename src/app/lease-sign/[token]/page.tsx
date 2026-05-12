@@ -14,11 +14,18 @@ interface LeaseInfo {
   tenantSigned: boolean;
   property: string;
   unit: string;
+  propertyAddress: string;
   startDate: string;
   endDate: string | null;
   rentAmount: number;
   depositAmount: number;
   tenantName: string;
+  residents: string[];
+  occupants: string[];
+  landlordName: string;
+  landlordAddress: string;
+  landlordPhone: string;
+  sections: Array<{ title: string; body: string[]; initials?: boolean }>;
 }
 
 function formatCurrency(n: number) { return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n); }
@@ -91,6 +98,11 @@ export default function LeaseSignPage() {
             <div className="grid grid-cols-2 gap-3">
               <div><p className="text-muted-foreground">Property</p><p className="font-medium">{lease.property}</p></div>
               <div><p className="text-muted-foreground">Unit</p><p className="font-medium">Unit {lease.unit}</p></div>
+              <div className="col-span-2"><p className="text-muted-foreground">Address</p><p className="font-medium">{lease.propertyAddress}</p></div>
+              <div className="col-span-2"><p className="text-muted-foreground">Residents</p><p className="font-medium">{lease.residents.join(", ") || lease.tenantName}</p></div>
+              {lease.occupants.length > 0 && (
+                <div className="col-span-2"><p className="text-muted-foreground">Other Occupants</p><p className="font-medium">{lease.occupants.join(", ")}</p></div>
+              )}
               <div><p className="text-muted-foreground">Start Date</p><p className="font-medium">{formatDate(lease.startDate)}</p></div>
               <div><p className="text-muted-foreground">End Date</p><p className="font-medium">{lease.endDate ? formatDate(lease.endDate) : "Month-to-month"}</p></div>
               <div><p className="text-muted-foreground">Monthly Rent</p><p className="font-medium">{formatCurrency(lease.rentAmount)}</p></div>
@@ -99,18 +111,19 @@ export default function LeaseSignPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle>Lease Terms</CardTitle></CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-3 leading-relaxed">
-            <p>This Lease Agreement ("Agreement") is entered into between the Landlord and the Tenant named above.</p>
-            <p><strong>1. RENT.</strong> Tenant agrees to pay the monthly rent amount specified above, due on the 1st of each month. Late payments may be subject to a late fee per the Landlord's policy.</p>
-            <p><strong>2. SECURITY DEPOSIT.</strong> Tenant agrees to pay the security deposit specified above prior to move-in. The deposit will be returned within 30 days of move-out, less any deductions for damages beyond normal wear and tear.</p>
-            <p><strong>3. USE OF PREMISES.</strong> The premises shall be used for residential purposes only. Tenant shall comply with all laws, ordinances, and regulations applicable to the premises.</p>
-            <p><strong>4. MAINTENANCE.</strong> Tenant shall keep the premises in a clean and sanitary condition and shall promptly notify the Landlord of any maintenance issues.</p>
-            <p><strong>5. TERMINATION.</strong> Either party may terminate this agreement with proper notice as required by applicable law. For fixed-term leases, early termination may be subject to penalties.</p>
-            <p><strong>6. ENTIRE AGREEMENT.</strong> This agreement constitutes the entire agreement between the parties and supersedes all prior negotiations, representations, or agreements.</p>
-          </CardContent>
-        </Card>
+        {lease.sections.map((section) => (
+          <Card key={section.title}>
+            <CardHeader><CardTitle>{section.title}</CardTitle></CardHeader>
+            <CardContent className="text-sm text-muted-foreground space-y-3 leading-relaxed">
+              {section.body.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+              {section.initials && (
+                <div className="mt-5 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  By signing below, resident acknowledges and agrees to the terms in {section.title}.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
 
         <Card>
           <CardHeader><CardTitle>Sign Here</CardTitle></CardHeader>
