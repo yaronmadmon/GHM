@@ -2,7 +2,18 @@ import { requireOrg } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { calculateLeaseBalance } from "@/lib/rent-ledger";
+import { estimatePropertyExpenses } from "@/lib/expense-estimator";
 import OpenAI from "openai";
+
+interface PropertyAnalysis {
+  propertyId: string;
+  propertyName: string;
+  healthScore: number;
+  priority: "critical" | "attention" | "good";
+  issues: string[];
+  opportunities: string[];
+  summary: string;
+}
 
 export const maxDuration = 60;
 
@@ -51,6 +62,7 @@ async function buildPortfolioSnapshot(organizationId: string) {
     prisma.property.findMany({
       where: { organizationId, archivedAt: null },
       include: {
+        expenses: true,
         units: {
           include: {
             leases: {
@@ -226,6 +238,50 @@ async function buildPortfolioSnapshot(organizationId: string) {
     unitCount: group.rents.length,
   }));
 
+  const overdueByProperty = overdueItems.reduce<Record<string, { count: number; balance: number }>>((acc, item) => {
+    const propId = item.lease.unit.property.id;
+    acc[propId] ??= { count: 0, balance: 0 };
+    acc[propId].count += 1;
+    acc[propId].balance += item.owed;
+    return acc;
+  }, {});
+
+  const maintenanceByProperty = openMaintenance.reduce<Record<string, number>>((acc, req) => {
+    acc[req.property.id] = (acc[req.property.id] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const propertyDetails = properties.map((property) => {
+    const propUnits = units.filter((u) => u.property.id === property.id);
+    const propActiveUnits = propUnits.filter((u) => u.activeLease);
+    const monthlyRentRoll = propActiveUnits.reduce((sum, u) => sum + numberValue(u.activeLease?.rentAmount), 0);
+    const exp = property.expenses;
+    const monthlyExpenses = exp
+      ? [exp.propertyTaxMonthly, exp.waterSewerMonthly, exp.electricityMonthly, exp.gasMonthly,
+         exp.insuranceMonthly, exp.mortgageMonthly, exp.hoaMonthly, exp.otherMonthly]
+          .reduce((sum, v) => sum + (v !== null ? Number(v) : 0), 0)
+      : null;
+    const overdueInfo = overdueByProperty[property.id] ?? { count: 0, balance: 0 };
+    return {
+      id: property.id,
+      name: property.name,
+      address: `${property.addressLine1}, ${property.city}, ${property.state}`,
+      addressLine1: property.addressLine1,
+      city: property.city,
+      state: property.state,
+      zip: property.zip,
+      unitCount: propUnits.length,
+      occupiedUnits: propActiveUnits.length,
+      occupancyRate: propUnits.length ? Math.round((propActiveUnits.length / propUnits.length) * 100) : 0,
+      monthlyRentRoll: Math.round(monthlyRentRoll),
+      monthlyExpenses: monthlyExpenses !== null ? Math.round(monthlyExpenses) : null,
+      hasExpenses: exp !== null,
+      openMaintenanceCount: maintenanceByProperty[property.id] ?? 0,
+      overdueTenantCount: overdueInfo.count,
+      overdueBalance: Math.round(overdueInfo.balance),
+    };
+  });
+
   return {
     generatedAt: now.toISOString(),
     portfolio: {
@@ -276,6 +332,7 @@ async function buildPortfolioSnapshot(organizationId: string) {
       vacancyLoss: "Estimated from vacant units multiplied by comparable in-portfolio rents when available, then prior rent or portfolio median rent.",
       expenses: "Uses recorded Transaction rows from the trailing 12 months.",
     },
+    propertyDetails,
     focusItems: {
       overduePayments: overdueItems.slice(0, 8).map((item) => ({
         tenantName: item.tenant ? `${item.tenant.firstName} ${item.tenant.lastName}` : "Unknown tenant",
@@ -478,6 +535,50 @@ async function generateChatAnswer(
     ?? "I could not generate an answer from the current portfolio snapshot.";
 }
 
+async function generatePropertyAnalyses(propertyDetails: PortfolioSnapshot["propertyDetails"]): Promise<PropertyAnalysis[]> {
+  const client = getOpenAIClient();
+  if (!client || !propertyDetails.length) return [];
+
+  const forAI = propertyDetails.map(({ id, name, address, unitCount, occupiedUnits, occupancyRate, monthlyRentRoll, monthlyExpenses, openMaintenanceCount, overdueTenantCount, overdueBalance }) => ({
+    id, name, address, unitCount, occupiedUnits, occupancyRate, monthlyRentRoll, monthlyExpenses,
+    netOperatingIncome: monthlyExpenses !== null ? monthlyRentRoll - monthlyExpenses : null,
+    openMaintenanceCount, overdueTenantCount, overdueBalance,
+  }));
+
+  try {
+    const response = await client.chat.completions.create({
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 2000,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are a property portfolio health analyst.",
+            "For each property in the array, generate a health card using only the data provided.",
+            "healthScore: 0-100 (100 = excellent). Penalize for: low occupancy, high overdue balance, many open maintenance issues, negative or unknown NOI.",
+            "priority: 'critical' if healthScore < 60, 'attention' if 60-79, 'good' if >= 80.",
+            "issues: 1-3 specific, concrete problems using the exact numbers provided. Be direct.",
+            "opportunities: 1-2 specific, actionable improvements for this property.",
+            "summary: one sentence describing the property's current health situation.",
+            "Return JSON with key 'propertyAnalyses' as an array of { propertyId, propertyName, healthScore, priority, issues, opportunities, summary }.",
+            "Do not invent data. Use only what is in the input.",
+          ].join(" "),
+        },
+        { role: "user", content: JSON.stringify(forAI) },
+      ],
+    });
+
+    const content = response.choices[0]?.message.content;
+    if (!content) return [];
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed.propertyAnalyses) ? parsed.propertyAnalyses : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { organizationId } = await requireOrg();
@@ -494,7 +595,36 @@ export async function POST(req: Request) {
 
     const analysis = await generateAnalysis(snapshot);
 
-    return Response.json({ snapshot, analysis });
+    // Estimate expenses for any property that has no PropertyExpenses record
+    const propertiesNeedingEstimation = snapshot.propertyDetails.filter((p) => !p.hasExpenses);
+    if (propertiesNeedingEstimation.length > 0) {
+      const estimationResults = await Promise.allSettled(
+        propertiesNeedingEstimation.map((p) =>
+          estimatePropertyExpenses({ addressLine1: p.addressLine1, city: p.city, state: p.state, zip: p.zip })
+            .then((estimate) => ({ propertyId: p.id, estimate }))
+        )
+      );
+
+      for (const res of estimationResults) {
+        if (res.status === "fulfilled") {
+          const { propertyId, estimate } = res.value;
+          await prisma.propertyExpenses.create({
+            data: { propertyId, ...estimate, aiEstimatedAt: new Date() },
+          }).catch(() => {});
+          const detail = snapshot.propertyDetails.find((p) => p.id === propertyId);
+          if (detail) {
+            const total = (Object.values(estimate) as (number | null)[])
+              .reduce<number>((sum, v) => sum + (v !== null ? v : 0), 0);
+            detail.monthlyExpenses = Math.round(total);
+            detail.hasExpenses = true;
+          }
+        }
+      }
+    }
+
+    const propertyAnalyses = await generatePropertyAnalyses(snapshot.propertyDetails);
+
+    return Response.json({ snapshot, analysis, propertyAnalyses });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to analyze portfolio";
     const status = message === "Unauthorized" ? 401 : 500;

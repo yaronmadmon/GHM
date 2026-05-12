@@ -9,6 +9,7 @@ import { Building2, ArrowLeft, MapPin, Wrench, Plus, Users, BarChart2 } from "lu
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PropertyDeleteButton } from "@/components/properties/PropertyActions";
 import { PropertyPhotoGallery } from "@/components/properties/PropertyPhotoGallery";
+import { PropertyExpensesEditor } from "@/components/properties/PropertyExpensesEditor";
 
 const STATUS_STYLES: Record<string, string> = {
   occupied: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
@@ -25,6 +26,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
     where: { id, organizationId: session.user.organizationId },
     include: {
       photos: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
+      expenses: true,
       units: {
         include: {
           leases: {
@@ -61,6 +63,23 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
       {/* Photo gallery */}
       <PropertyPhotoGallery propertyId={id} initialPhotos={property.photos} />
+
+      {/* Operating Expenses */}
+      <PropertyExpensesEditor
+        propertyId={id}
+        initialExpenses={property.expenses ? {
+          propertyTaxMonthly: property.expenses.propertyTaxMonthly !== null ? Number(property.expenses.propertyTaxMonthly) : null,
+          waterSewerMonthly: property.expenses.waterSewerMonthly !== null ? Number(property.expenses.waterSewerMonthly) : null,
+          electricityMonthly: property.expenses.electricityMonthly !== null ? Number(property.expenses.electricityMonthly) : null,
+          gasMonthly: property.expenses.gasMonthly !== null ? Number(property.expenses.gasMonthly) : null,
+          insuranceMonthly: property.expenses.insuranceMonthly !== null ? Number(property.expenses.insuranceMonthly) : null,
+          mortgageMonthly: property.expenses.mortgageMonthly !== null ? Number(property.expenses.mortgageMonthly) : null,
+          hoaMonthly: property.expenses.hoaMonthly !== null ? Number(property.expenses.hoaMonthly) : null,
+          otherMonthly: property.expenses.otherMonthly !== null ? Number(property.expenses.otherMonthly) : null,
+          aiEstimatedAt: property.expenses.aiEstimatedAt?.toISOString() ?? null,
+          lastEditedAt: property.expenses.lastEditedAt?.toISOString() ?? null,
+        } : null}
+      />
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-3">

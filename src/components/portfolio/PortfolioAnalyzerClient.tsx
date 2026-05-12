@@ -26,8 +26,31 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 
+type PropertyAnalysis = {
+  propertyId: string;
+  propertyName: string;
+  healthScore: number;
+  priority: "critical" | "attention" | "good";
+  issues: string[];
+  opportunities: string[];
+  summary: string;
+};
+
 type Snapshot = {
   generatedAt: string;
+  propertyDetails?: {
+    id: string;
+    name: string;
+    address: string;
+    unitCount: number;
+    occupiedUnits: number;
+    occupancyRate: number;
+    monthlyRentRoll: number;
+    monthlyExpenses: number | null;
+    openMaintenanceCount: number;
+    overdueTenantCount: number;
+    overdueBalance: number;
+  }[];
   portfolio: {
     propertyCount: number;
     unitCount: number;
@@ -89,6 +112,7 @@ type Analysis = {
 type Result = {
   snapshot: Snapshot;
   analysis: Analysis;
+  propertyAnalyses?: PropertyAnalysis[];
 };
 
 type ChatMessage = {
@@ -468,6 +492,87 @@ export function PortfolioAnalyzerClient() {
                   </CardContent>
                 </Card>
               </div>
+
+              {result.propertyAnalyses && result.propertyAnalyses.length > 0 && (
+                <div>
+                  <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
+                    <Building2 className="h-4 w-4" />
+                    Property Health Cards
+                  </h2>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {[...result.propertyAnalyses]
+                      .sort((a, b) => a.healthScore - b.healthScore)
+                      .map((pa) => {
+                        const detail = result.snapshot.propertyDetails?.find((d) => d.id === pa.propertyId);
+                        const scoreColor = pa.healthScore >= 80 ? "text-emerald-600" : pa.healthScore >= 60 ? "text-amber-600" : "text-red-600";
+                        const scoreBg = pa.healthScore >= 80 ? "bg-emerald-500/10 border-emerald-200" : pa.healthScore >= 60 ? "bg-amber-500/10 border-amber-200" : "bg-red-500/10 border-red-200";
+                        const noi = detail && detail.monthlyExpenses !== null ? detail.monthlyRentRoll - detail.monthlyExpenses : null;
+                        return (
+                          <Card key={pa.propertyId} className="flex flex-col">
+                            <CardHeader className="pb-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <CardTitle className="text-sm font-semibold truncate">{pa.propertyName}</CardTitle>
+                                  {detail && <p className="text-xs text-muted-foreground truncate mt-0.5">{detail.address}</p>}
+                                </div>
+                                <div className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${scoreBg} ${scoreColor}`}>
+                                  {pa.healthScore}
+                                </div>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="flex flex-col gap-3 flex-1">
+                              {detail && (
+                                <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/20 p-2.5 text-xs">
+                                  <div className="text-center">
+                                    <p className="text-muted-foreground">Rent</p>
+                                    <p className="font-semibold">{formatCurrency(detail.monthlyRentRoll)}</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-muted-foreground">Expenses</p>
+                                    <p className="font-semibold">{detail.monthlyExpenses !== null ? formatCurrency(detail.monthlyExpenses) : "—"}</p>
+                                  </div>
+                                  <div className="text-center">
+                                    <p className="text-muted-foreground">NOI</p>
+                                    <p className={`font-semibold ${noi !== null ? (noi >= 0 ? "text-emerald-600" : "text-red-600") : ""}`}>
+                                      {noi !== null ? formatCurrency(noi) : "—"}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                              <p className="text-xs text-muted-foreground italic">{pa.summary}</p>
+                              {pa.issues.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-medium text-red-600 mb-1">Issues</p>
+                                  <ul className="space-y-1">
+                                    {pa.issues.map((issue) => (
+                                      <li key={issue} className="flex gap-2 text-xs text-muted-foreground">
+                                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-red-500" />
+                                        <span>{issue}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {pa.opportunities.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-medium text-emerald-600 mb-1">Opportunities</p>
+                                  <ul className="space-y-1">
+                                    {pa.opportunities.map((opp) => (
+                                      <li key={opp} className="flex gap-2 text-xs text-muted-foreground">
+                                        <TrendingUp className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
+                                        <span>{opp}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </section>

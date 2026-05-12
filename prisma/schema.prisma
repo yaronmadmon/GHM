@@ -95,10 +95,34 @@ model Property {
   transactions        Transaction[]
   applicationInvites  ApplicationInvite[]
   applications        Application[]
+  expenses            PropertyExpenses?
 
   @@index([organizationId])
   @@index([status])
   @@map("properties")
+}
+
+model PropertyExpenses {
+  id         String @id @default(cuid())
+  propertyId String @unique
+
+  propertyTaxMonthly  Decimal? @db.Decimal(10, 2)
+  waterSewerMonthly   Decimal? @db.Decimal(10, 2)
+  electricityMonthly  Decimal? @db.Decimal(10, 2)
+  gasMonthly          Decimal? @db.Decimal(10, 2)
+  insuranceMonthly    Decimal? @db.Decimal(10, 2)
+  mortgageMonthly     Decimal? @db.Decimal(10, 2)
+  hoaMonthly          Decimal? @db.Decimal(10, 2)
+  otherMonthly        Decimal? @db.Decimal(10, 2)
+
+  aiEstimatedAt DateTime?
+  lastEditedAt  DateTime?
+
+  property  Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("property_expenses")
 }
 
 model PropertyPhoto {
