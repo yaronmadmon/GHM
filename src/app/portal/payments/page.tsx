@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,7 @@ function calcFee(amountDue: number) {
   return Math.round(amountDue * 0.029 * 100 + 30) / 100;
 }
 
-export default function PortalPaymentsPage() {
+function PortalPaymentsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [payments, setPayments] = useState<any[]>([]);
@@ -160,5 +160,13 @@ export default function PortalPaymentsPage() {
         </Card>
       </main>
     </div>
+  );
+}
+
+export default function PortalPaymentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <PortalPaymentsContent />
+    </Suspense>
   );
 }

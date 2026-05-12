@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { toast } from "sonner";
 interface Property { id: string; name: string; units: { id: string; unitNumber: string }[] }
 interface Tenant { id: string; firstName: string; lastName: string }
 
-export default function NewLeasePage() {
+function NewLeaseContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [properties, setProperties] = useState<Property[]>([]);
@@ -135,5 +135,13 @@ export default function NewLeasePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function NewLeasePage() {
+  return (
+    <Suspense fallback={null}>
+      <NewLeaseContent />
+    </Suspense>
   );
 }

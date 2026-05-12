@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,7 @@ interface Vendor { id: string; name: string; trade?: string }
 const CATEGORIES = ["plumbing", "electrical", "hvac", "appliance", "structural", "other"];
 const PRIORITIES = ["low", "medium", "high", "emergency"];
 
-export default function NewMaintenancePage() {
+function NewMaintenanceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [properties, setProperties] = useState<Property[]>([]);
@@ -199,5 +199,13 @@ export default function NewMaintenancePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function NewMaintenancePage() {
+  return (
+    <Suspense fallback={null}>
+      <NewMaintenanceContent />
+    </Suspense>
   );
 }
