@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
+import { calculateLeaseBalance } from "@/lib/rent-ledger";
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,13 +16,18 @@ export async function GET(req: NextRequest) {
       include: {
         unit: { include: { property: true } },
         tenants: { include: { tenant: true } },
-        rentPayments: { where: { periodYear: year, periodMonth: month } },
+        rentPayments: true,
+        transactions: true,
       },
       orderBy: [{ unit: { property: { name: "asc" } } }, { unit: { unitNumber: "asc" } }],
     });
 
     const result = activeLeases.map((lease) => {
-      const payment = lease.rentPayments[0] ?? null;
+      const payment = lease.rentPayments.find((p) => p.periodYear === year && p.periodMonth === month) ?? null;
+      const balance = calculateLeaseBalance({
+        rentPayments: lease.rentPayments,
+        transactions: lease.transactions,
+      });
       return {
         leaseId: lease.id,
         unit: lease.unit,
@@ -29,6 +35,7 @@ export async function GET(req: NextRequest) {
         rentAmount: lease.rentAmount,
         payment,
         status: payment?.status ?? "not_generated",
+        balance,
       };
     });
 

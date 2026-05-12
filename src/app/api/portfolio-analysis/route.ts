@@ -1,6 +1,7 @@
 import { requireOrg } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
+import { calculateLeaseBalance } from "@/lib/rent-ledger";
 import OpenAI from "openai";
 
 export const maxDuration = 60;
@@ -42,7 +43,7 @@ async function buildPortfolioSnapshot(organizationId: string) {
   const [
     properties,
     transactions,
-    overduePayments,
+    activeLeases,
     openMaintenance,
     expiringLeases,
     pendingApplications,
@@ -66,15 +67,13 @@ async function buildPortfolioSnapshot(organizationId: string) {
       include: { property: { select: { id: true, name: true } }, unit: { select: { unitNumber: true } } },
       orderBy: { date: "desc" },
     }),
-    prisma.rentPayment.findMany({
-      where: { organizationId, status: { in: ["overdue", "partial", "pending"] }, dueDate: { lt: now } },
+    prisma.lease.findMany({
+      where: { organizationId, status: "active" },
       include: {
-        lease: {
-          include: {
-            unit: { include: { property: true } },
-            tenants: { include: { tenant: true } },
-          },
-        },
+        rentPayments: true,
+        transactions: true,
+        unit: { include: { property: true } },
+        tenants: { include: { tenant: true } },
       },
     }),
     prisma.maintenanceRequest.findMany({
@@ -198,10 +197,19 @@ async function buildPortfolioSnapshot(organizationId: string) {
     .filter((property) => property.amount > Math.max(3000, expenses12 * 0.18))
     .slice(0, 5);
 
-  const overdueBalance = overduePayments.reduce((sum, payment) => {
-    const owed = numberValue(payment.amountDue) - numberValue(payment.amountPaid);
-    return owed > 0 ? sum + owed : sum;
-  }, 0);
+  const overdueItems = activeLeases
+    .map((lease) => {
+      const tenant = lease.tenants[0]?.tenant;
+      const owed = calculateLeaseBalance({ rentPayments: lease.rentPayments, transactions: lease.transactions });
+      return {
+        lease,
+        tenant,
+        owed,
+      };
+    })
+    .filter((item) => item.tenant && item.owed > 0)
+    .sort((a, b) => b.owed - a.owed);
+  const overdueBalance = overdueItems.reduce((sum, item) => sum + item.owed, 0);
 
   const rentComparisonGroups = Object.values(activeUnits.reduce<Record<string, { label: string; rents: number[] }>>((acc, row) => {
     const bedrooms = row.unit.bedrooms == null ? "unknown" : `${numberValue(row.unit.bedrooms)} bed`;
@@ -256,24 +264,25 @@ async function buildPortfolioSnapshot(organizationId: string) {
     vacancies: vacantUnitDetails.sort((a, b) => b.annualOpportunity - a.annualOpportunity).slice(0, 12),
     rentComparisonGroups,
     risks: {
-      overdueTenantCount: new Set(overduePayments.map((payment) => payment.lease.tenants[0]?.tenant.id).filter(Boolean)).size,
+      overdueTenantCount: overdueItems.length,
       overdueBalance: Math.round(overdueBalance),
       openMaintenanceCount: openMaintenance.length,
       emergencyMaintenanceCount: openMaintenance.filter((request) => request.priority === "emergency").length,
       expiringLeaseCount: expiringLeases.length,
       pendingApplicationCount: pendingApplications.length,
     },
+    calculationNotes: {
+      overdueBalance: "Net open balance across active lease ledgers, calculated from rent payment rows plus imported ledger transactions. It uses recorded app data only.",
+      vacancyLoss: "Estimated from vacant units multiplied by comparable in-portfolio rents when available, then prior rent or portfolio median rent.",
+      expenses: "Uses recorded Transaction rows from the trailing 12 months.",
+    },
     focusItems: {
-      overduePayments: overduePayments.slice(0, 8).map((payment) => {
-        const tenant = payment.lease.tenants[0]?.tenant;
-        return {
-          tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : "Unknown tenant",
-          propertyName: payment.lease.unit.property.name,
-          unitNumber: payment.lease.unit.unitNumber,
-          owed: Math.round(Math.max(0, numberValue(payment.amountDue) - numberValue(payment.amountPaid))),
-          dueDate: payment.dueDate.toISOString(),
-        };
-      }),
+      overduePayments: overdueItems.slice(0, 8).map((item) => ({
+        tenantName: item.tenant ? `${item.tenant.firstName} ${item.tenant.lastName}` : "Unknown tenant",
+        propertyName: item.lease.unit.property.name,
+        unitNumber: item.lease.unit.unitNumber,
+        owed: Math.round(item.owed),
+      })),
       openMaintenance: openMaintenance.slice(0, 8).map((request) => ({
         title: request.title,
         priority: request.priority,
@@ -402,6 +411,9 @@ async function generateAnalysis(snapshot: PortfolioSnapshot) {
         content: [
           "You are a senior property portfolio analyst for a landlord.",
           "Analyze only the provided GHM portfolio data. Do not invent comps, legal rules, cap rates, or market facts.",
+          "Do not invent property names, expense categories, balances, trends, causes, or recommendations that are not directly supported by the JSON snapshot.",
+          "When discussing collections, use snapshot.risks.overdueBalance only. That number is net unpaid rent and excludes fees/legal/adjustments.",
+          "If the snapshot does not contain enough evidence for a claim, say what data is missing instead of guessing.",
           "Be concrete, numerical, and action-oriented. Treat this as planning support, not licensed financial advice.",
           "Return valid JSON with these keys: executiveSummary string[], priorityScore number, focusAreas array of {title, why, impact, urgency}, projectPlan {name, goal, projectedMonthlyUpside, phases array of {name, actions string[], expectedOutcome}}, rentStrategy array of {unit, currentOrLastRent, suggestedRent, rationale}, expenseWatchlist array of {category, amount, recommendation}, nextActions string[], caveats string[].",
         ].join(" "),
@@ -423,10 +435,63 @@ async function generateAnalysis(snapshot: PortfolioSnapshot) {
   }
 }
 
-export async function POST() {
+async function generateChatAnswer(
+  snapshot: PortfolioSnapshot,
+  question: string,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+) {
+  const client = getOpenAIClient();
+  if (!client) {
+    return "I can answer this once the OpenAI API key is configured. Based on the current snapshot, start by reviewing vacancy loss, overdue balances, and the largest expense categories.";
+  }
+
+  const response = await client.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.25,
+    max_tokens: 1200,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are GHM Financial Advisor, a calm and practical financial coach for landlords and property managers.",
+          "Use only the provided portfolio snapshot and conversation history. Do not invent external market comps, laws, cap rates, or facts.",
+          "Do not invent property names, balances, expense categories, trends, or causes. If the answer is not supported by the snapshot, say what data is missing.",
+          "Collections risk must use snapshot.risks.overdueBalance, which is net unpaid rent only.",
+          "Answer in plain English with concrete numbers where possible. Prioritize actions, risks, and tradeoffs.",
+          "Keep the response concise: 2-4 short paragraphs or a short bullet list when that is clearer.",
+          "This is planning support, not licensed financial, tax, or legal advice.",
+        ].join(" "),
+      },
+      {
+        role: "user",
+        content: `Current portfolio snapshot:\n${JSON.stringify(snapshot)}`,
+      },
+      ...history.slice(-8).map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      { role: "user", content: question },
+    ],
+  });
+
+  return response.choices[0]?.message.content
+    ?? "I could not generate an answer from the current portfolio snapshot.";
+}
+
+export async function POST(req: Request) {
   try {
     const { organizationId } = await requireOrg();
+    const body = await req.json().catch(() => ({}));
     const snapshot = await buildPortfolioSnapshot(organizationId);
+
+    if (body.mode === "chat") {
+      const question = typeof body.question === "string" ? body.question.trim() : "";
+      if (!question) return Response.json({ error: "Question is required" }, { status: 400 });
+      const history = Array.isArray(body.history) ? body.history : [];
+      const answer = await generateChatAnswer(snapshot, question, history);
+      return Response.json({ snapshot, answer });
+    }
+
     const analysis = await generateAnalysis(snapshot);
 
     return Response.json({ snapshot, analysis });

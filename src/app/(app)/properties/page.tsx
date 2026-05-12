@@ -57,15 +57,21 @@ export default async function PropertiesPage() {
           {properties.map((property) => {
             const total = property.units.length;
             const occupied = property.units.filter((u) => u.status === "occupied").length;
+            const maintenance = property.units.filter((u) => u.status === "under_maintenance").length;
             const vacant = total - occupied;
+            const displayStatus = total > 0 && occupied === total
+              ? "occupied"
+              : maintenance > 0
+                ? "under_maintenance"
+                : "vacant";
             return (
               <Link key={property.id} href={`/properties/${property.id}`}>
                 <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-semibold leading-snug">{property.name}</h3>
-                      <Badge className={`text-xs border shrink-0 ${STATUS_COLORS[property.status] ?? ""}`}>
-                        {property.status.replace("_", " ")}
+                      <Badge className={`text-xs border shrink-0 ${STATUS_COLORS[displayStatus] ?? ""}`}>
+                        {displayStatus.replace("_", " ")}
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground flex items-start gap-1">

@@ -82,7 +82,12 @@ export default async function TenantsPage() {
             const primary = tenantList[0];
             if (!primary) return null;
             return (
-              <Card key={lease.unitId} className="hover:shadow-md transition-shadow">
+              <Card key={lease.unitId} className="relative hover:shadow-md transition-shadow cursor-pointer">
+                <Link
+                  href={`/tenants/${primary.id}`}
+                  className="absolute inset-0 z-0 rounded-xl"
+                  aria-label={`Open tenant file for ${primary.firstName} ${primary.lastName}`}
+                />
                 <CardContent className="p-4 space-y-3">
                   {/* Avatars + unit */}
                   <div className="flex items-center gap-3">
@@ -104,7 +109,7 @@ export default async function TenantsPage() {
                   {/* Each tenant's info */}
                   <div className="space-y-2 border-t pt-2">
                     {tenantList.map((t, idx) => (
-                      <div key={t.id}>
+                      <div key={t.id} className="relative z-10">
                         <Link href={`/tenants/${t.id}`} className="font-medium text-sm hover:text-primary transition-colors">
                           {t.firstName} {t.lastName}
                           {idx === 0 && tenantList.length > 1 && (
@@ -113,12 +118,12 @@ export default async function TenantsPage() {
                         </Link>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                           {t.email && (
-                            <a href={`mailto:${t.email}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                            <a href={`mailto:${t.email}`} className="relative z-10 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
                               <Mail className="h-3 w-3" />{t.email}
                             </a>
                           )}
                           {t.phone && (
-                            <a href={`tel:${t.phone}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                            <a href={`tel:${t.phone}`} className="relative z-10 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
                               <Phone className="h-3 w-3" />{t.phone}
                             </a>
                           )}
@@ -127,7 +132,7 @@ export default async function TenantsPage() {
                     ))}
                   </div>
 
-                  <Link href={`/leases/${lease.id}`} className="block text-xs text-primary hover:underline">
+                  <Link href={`/leases/${lease.id}`} className="relative z-10 block text-xs text-primary hover:underline">
                     View lease →
                   </Link>
                 </CardContent>

@@ -1,0 +1,40 @@
+type MoneyLike = number | string | { toString(): string } | null | undefined;
+
+export interface LedgerRentPayment {
+  amountDue: MoneyLike;
+  amountPaid: MoneyLike;
+  periodYear?: number;
+  periodMonth?: number;
+}
+
+export interface LedgerTransaction {
+  type: string;
+  amount: MoneyLike;
+}
+
+function toNumber(value: MoneyLike) {
+  return Number(value ?? 0);
+}
+
+export function calculateLeaseBalance(input: {
+  rentPayments: LedgerRentPayment[];
+  transactions: LedgerTransaction[];
+}) {
+  const transactionBalance = input.transactions.reduce((sum, transaction) => {
+    const amount = toNumber(transaction.amount);
+    return sum + (transaction.type === "income" ? amount : -amount);
+  }, 0);
+
+  return Math.round((calculateLeaseRentBalance(input) + transactionBalance) * 100) / 100;
+}
+
+export function calculateLeaseRentBalance(input: {
+  rentPayments: LedgerRentPayment[];
+}) {
+  const rentBalance = input.rentPayments.reduce(
+    (sum, payment) => sum + toNumber(payment.amountDue) - toNumber(payment.amountPaid),
+    0,
+  );
+
+  return Math.round(rentBalance * 100) / 100;
+}

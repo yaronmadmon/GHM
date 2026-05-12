@@ -27,6 +27,7 @@ interface BulkItem {
   rentAmount: string;
   payment: { id: string; amountPaid: string; amountDue: string; status: string } | null;
   status: string;
+  balance: number;
 }
 
 export default function RentPage() {
@@ -87,6 +88,7 @@ export default function RentPage() {
 
   const totalExpected = items.reduce((s, i) => s + parseFloat(String(i.rentAmount)), 0);
   const totalCollected = items.reduce((s, i) => s + (i.payment ? parseFloat(String(i.payment.amountPaid)) : 0), 0);
+  const totalOutstanding = items.reduce((s, i) => s + Math.max(0, Number(i.balance ?? 0)), 0);
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
@@ -109,6 +111,7 @@ export default function RentPage() {
         <div className="flex gap-3 text-sm ml-1">
           <span className="text-muted-foreground">Expected: <strong>{formatCurrency(totalExpected)}</strong></span>
           <span className="text-muted-foreground">Collected: <strong className="text-emerald-600">{formatCurrency(totalCollected)}</strong></span>
+          <span className="text-muted-foreground">Outstanding: <strong className="text-red-600">{formatCurrency(totalOutstanding)}</strong></span>
         </div>
       </div>
 
@@ -142,6 +145,9 @@ export default function RentPage() {
                       {formatCurrency(parseFloat(String(item.rentAmount)))}
                     </span>
                   </div>
+                  <p className={`mt-1 text-xs font-mono ${item.balance > 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                    Ledger balance: {formatCurrency(item.balance)}
+                  </p>
                 </div>
                 <Button size="sm" variant="outline" className="h-8 gap-1 text-xs shrink-0" onClick={() => setRecordDialog(item)}>
                   <Plus className="h-3 w-3" />Record
@@ -159,6 +165,7 @@ export default function RentPage() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Unit</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">Due</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">Paid</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Ledger balance</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -181,6 +188,9 @@ export default function RentPage() {
                     <td className="px-4 py-3 text-right font-mono">{formatCurrency(parseFloat(String(item.rentAmount)))}</td>
                     <td className="px-4 py-3 text-right font-mono">
                       {item.payment ? formatCurrency(parseFloat(String(item.payment.amountPaid))) : "—"}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono ${item.balance > 0 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                      {formatCurrency(item.balance)}
                     </td>
                     <td className="px-4 py-3">
                       <Badge className={`text-xs border ${STATUS_STYLES[item.status] ?? ""}`}>{item.status.replace("_", " ")}</Badge>

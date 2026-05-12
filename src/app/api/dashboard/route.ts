@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { addDays } from "date-fns";
+import { calculateLeaseBalance } from "@/lib/rent-ledger";
 
 export async function GET() {
   try {
@@ -13,17 +14,15 @@ export async function GET() {
     const [
       propertiesData,
       expiringLeases,
-      overduePayments,
+      activeRentLeases,
       maintenanceSummary,
       pendingApplications,
-      monthPayments,
       recentActivity,
     ] = await Promise.all([
-      // Property counts
-      prisma.property.groupBy({
-        by: ["status"],
+      // Property and unit counts
+      prisma.property.findMany({
         where: { organizationId, archivedAt: null },
-        _count: true,
+        include: { units: { select: { status: true } } },
       }),
 
       // Leases expiring in 60 days
@@ -40,18 +39,15 @@ export async function GET() {
         orderBy: { endDate: "asc" },
       }),
 
-      // Overdue payments
-      prisma.rentPayment.findMany({
-        where: { organizationId, status: "overdue" },
+      // Active rent roll with full ledger data
+      prisma.lease.findMany({
+        where: { organizationId, status: "active" },
         include: {
-          lease: {
-            include: {
-              unit: { include: { property: true } },
-              tenants: { include: { tenant: true } },
-            },
-          },
+          rentPayments: true,
+          transactions: true,
+          unit: { include: { property: true } },
+          tenants: { include: { tenant: true } },
         },
-        orderBy: { amountDue: "desc" },
       }),
 
       // Maintenance by priority
@@ -64,11 +60,6 @@ export async function GET() {
       // Pending applications
       prisma.application.count({ where: { organizationId, status: "pending" } }),
 
-      // This month's payments
-      prisma.rentPayment.findMany({
-        where: { organizationId, periodYear: currentYear, periodMonth: currentMonth },
-      }),
-
       // Recent activity
       prisma.activityEvent.findMany({
         where: { organizationId },
@@ -79,14 +70,27 @@ export async function GET() {
     ]);
 
     // Compute rent totals
-    const totalExpected = monthPayments.reduce((sum, p) => sum + Number(p.amountDue), 0);
-    const totalCollected = monthPayments.reduce((sum, p) => sum + Number(p.amountPaid), 0);
+    const totalExpected = activeRentLeases.reduce((sum, lease) => sum + Number(lease.rentAmount), 0);
+    const totalCollected = activeRentLeases.reduce((sum, lease) => {
+      const currentPayment = lease.rentPayments.find((p) => p.periodYear === currentYear && p.periodMonth === currentMonth);
+      return sum + Number(currentPayment?.amountPaid ?? 0);
+    }, 0);
+    const overduePayments = activeRentLeases
+      .map((lease) => ({
+        lease,
+        ledgerBalance: calculateLeaseBalance({
+          rentPayments: lease.rentPayments,
+          transactions: lease.transactions,
+        }),
+      }))
+      .filter((item) => item.ledgerBalance > 0)
+      .sort((a, b) => b.ledgerBalance - a.ledgerBalance);
 
     const propertyStats = {
-      total: propertiesData.reduce((s, g) => s + g._count, 0),
-      occupied: propertiesData.find((g) => g.status === "occupied")?._count ?? 0,
-      vacant: propertiesData.find((g) => g.status === "vacant")?._count ?? 0,
-      underMaintenance: propertiesData.find((g) => g.status === "under_maintenance")?._count ?? 0,
+      total: propertiesData.length,
+      occupied: propertiesData.reduce((s, property) => s + property.units.filter((unit) => unit.status === "occupied").length, 0),
+      vacant: propertiesData.reduce((s, property) => s + property.units.filter((unit) => unit.status === "vacant").length, 0),
+      underMaintenance: propertiesData.reduce((s, property) => s + property.units.filter((unit) => unit.status === "under_maintenance").length, 0),
     };
 
     const maintenanceStats = maintenanceSummary.reduce((acc, g) => {

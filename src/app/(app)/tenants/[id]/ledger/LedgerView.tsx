@@ -73,7 +73,9 @@ interface Props {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmt(n: unknown) {
-  return `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const value = Number(n);
+  const formatted = Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${value < 0 ? "-" : ""}$${formatted}`;
 }
 
 function fmtDate(d: Date | string) {
@@ -81,6 +83,18 @@ function fmtDate(d: Date | string) {
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function balanceClass(balance: number) {
+  if (balance > 0) return "text-destructive";
+  if (balance < 0) return "text-emerald-600";
+  return "text-muted-foreground";
+}
+
+function balanceBoxClass(balance: number) {
+  if (balance > 0) return "border-destructive/40 bg-destructive/5";
+  if (balance < 0) return "border-emerald-500/40 bg-emerald-50/30";
+  return "border-border bg-muted/20";
+}
 
 // ─── Merge payments + transactions into a single chronological ledger ─────────
 
@@ -288,15 +302,15 @@ export function LedgerView({ tenant, activeLease, orgName, tenantId }: Props) {
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="border rounded-lg p-4 text-center">
             <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Total Charged</p>
-            <p className="text-xl font-bold font-mono">{fmt(totalCharges)}</p>
+            <p className="text-xl font-bold font-mono text-destructive">{fmt(totalCharges)}</p>
           </div>
           <div className="border rounded-lg p-4 text-center">
             <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Total Paid</p>
             <p className="text-xl font-bold font-mono text-emerald-600">{fmt(totalPayments)}</p>
           </div>
-          <div className={`border-2 rounded-lg p-4 text-center ${currentBalance > 0 ? "border-destructive/40 bg-destructive/5" : "border-emerald-500/40 bg-emerald-50/30"}`}>
+          <div className={`border-2 rounded-lg p-4 text-center ${balanceBoxClass(currentBalance)}`}>
             <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Balance Due</p>
-            <p className={`text-xl font-bold font-mono ${currentBalance > 0 ? "text-destructive" : "text-emerald-600"}`}>{fmt(currentBalance)}</p>
+            <p className={`text-xl font-bold font-mono ${balanceClass(currentBalance)}`}>{fmt(currentBalance)}</p>
           </div>
         </div>
 
@@ -326,13 +340,13 @@ export function LedgerView({ tenant, activeLease, orgName, tenantId }: Props) {
                       </span>
                     )}
                   </td>
-                  <td className="py-2 pr-4 text-right font-mono">
+                  <td className="py-2 pr-4 text-right font-mono text-destructive">
                     {row.charges > 0 ? fmt(row.charges) : "—"}
                   </td>
                   <td className="py-2 pr-4 text-right font-mono text-emerald-700">
                     {row.payments > 0 ? fmt(row.payments) : "—"}
                   </td>
-                  <td className={`py-2 text-right font-mono font-semibold ${row.balance > 0 ? "text-destructive" : "text-emerald-600"}`}>
+                  <td className={`py-2 text-right font-mono font-semibold ${balanceClass(row.balance)}`}>
                     {fmt(row.balance)}
                   </td>
                 </tr>
@@ -341,9 +355,9 @@ export function LedgerView({ tenant, activeLease, orgName, tenantId }: Props) {
             <tfoot>
               <tr className="border-t-2 border-foreground/20 font-bold">
                 <td colSpan={2} className="py-3 text-sm font-semibold">Total</td>
-                <td className="py-3 text-right font-mono">{fmt(totalCharges)}</td>
+                <td className="py-3 text-right font-mono text-destructive">{fmt(totalCharges)}</td>
                 <td className="py-3 text-right font-mono text-emerald-700">{fmt(totalPayments)}</td>
-                <td className={`py-3 text-right font-mono ${currentBalance > 0 ? "text-destructive" : "text-emerald-600"}`}>{fmt(currentBalance)}</td>
+                <td className={`py-3 text-right font-mono ${balanceClass(currentBalance)}`}>{fmt(currentBalance)}</td>
               </tr>
             </tfoot>
           </table>

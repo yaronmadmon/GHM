@@ -6,11 +6,19 @@ import { sendLedgerReport } from "@/lib/email";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function fmt(n: unknown) {
-  return `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const value = Number(n);
+  const formatted = Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${value < 0 ? "-" : ""}$${formatted}`;
 }
 
 function fmtDate(d: Date | string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function balanceColor(balance: number) {
+  if (balance > 0) return "#dc2626";
+  if (balance < 0) return "#16a34a";
+  return "#666";
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -135,16 +143,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
               <tr style="background:${i % 2 === 0 ? "#fff" : "#fafafa"}${r.status === "overdue" ? ";background:#fff5f5" : ""}">
                 <td style="padding:7px 6px;border-bottom:1px solid #eee;white-space:nowrap;color:#666">${fmtDate(r.date)}</td>
                 <td style="padding:7px 6px;border-bottom:1px solid #eee">${r.description}${r.status && r.status !== "paid" && r.charges > 0 ? ` <span style="color:${r.status === "overdue" ? "#dc2626" : "#666"};font-size:11px">[${r.status}]</span>` : ""}</td>
-                <td style="padding:7px 6px;border-bottom:1px solid #eee;text-align:right">${r.charges > 0 ? fmt(r.charges) : "—"}</td>
+                <td style="padding:7px 6px;border-bottom:1px solid #eee;text-align:right;color:#dc2626">${r.charges > 0 ? fmt(r.charges) : "—"}</td>
                 <td style="padding:7px 6px;border-bottom:1px solid #eee;text-align:right;color:#16a34a">${r.payments > 0 ? fmt(r.payments) : "—"}</td>
-                <td style="padding:7px 6px;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:${r.balance > 0 ? "#dc2626" : "#16a34a"}">${fmt(r.balance)}</td>
+                <td style="padding:7px 6px;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:${balanceColor(r.balance)}">${fmt(r.balance)}</td>
               </tr>
             `).join("")}
             <tr style="font-weight:700;border-top:2px solid #ccc">
               <td colspan="2" style="padding:9px 6px;font-family:sans-serif">Total</td>
-              <td style="padding:9px 6px;text-align:right">${fmt(totalCharges)}</td>
+              <td style="padding:9px 6px;text-align:right;color:#dc2626">${fmt(totalCharges)}</td>
               <td style="padding:9px 6px;text-align:right;color:#16a34a">${fmt(totalPayments)}</td>
-              <td style="padding:9px 6px;text-align:right;color:${currentBalance > 0 ? "#dc2626" : "#16a34a"}">${fmt(currentBalance)}</td>
+              <td style="padding:9px 6px;text-align:right;color:${balanceColor(currentBalance)}">${fmt(currentBalance)}</td>
             </tr>
           </tbody>
         </table>
