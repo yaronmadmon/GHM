@@ -156,6 +156,12 @@ export interface ExtractedTenant {
   }>;
 }
 
+function safeDate(value: string | undefined | null): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
 function parseMoney(value: string | undefined) {
   if (!value) return 0;
   return Number(value.replace(/[$,]/g, ""));
@@ -525,11 +531,12 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
           if (!existingTenant) results.tenants++;
 
           // 2. Create property + unit + lease if we have enough info
+          const leaseStartDate = safeDate(rec.leaseStart);
           if (
             options.createLeases &&
             rec.propertyAddress &&
             rec.rentAmount &&
-            rec.leaseStart
+            leaseStartDate
           ) {
             // Find or create property. Match normalized names/addresses so
             // "147 Mercer Street" and "147 Mercer St Realty LLC" resolve together.
@@ -571,12 +578,12 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
                 data: {
                   organizationId,
                   unitId: unit.id,
-                  startDate: new Date(rec.leaseStart),
-                  endDate: rec.leaseEnd ? new Date(rec.leaseEnd) : undefined,
+                  startDate: leaseStartDate,
+                  endDate: safeDate(rec.leaseEnd),
                   rentAmount: rec.rentAmount,
                   depositAmount: rec.depositAmount ?? undefined,
                   depositPaid: rec.depositPaid ?? false,
-                  depositPaidAt: rec.depositPaid ? new Date(rec.leaseStart) : undefined,
+                  depositPaidAt: rec.depositPaid ? leaseStartDate : undefined,
                   status: "active",
                   tenants: { create: [{ tenantId: tenant.id, isPrimary: true }] },
                 },
@@ -780,12 +787,12 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
               await prisma.lease.update({
                 where: { id: existingLease.id },
                 data: {
-                  startDate: new Date(rec.leaseStart),
-                  endDate: rec.leaseEnd ? new Date(rec.leaseEnd) : undefined,
+                  startDate: leaseStartDate,
+                  endDate: safeDate(rec.leaseEnd),
                   rentAmount: rec.rentAmount,
                   depositAmount: rec.depositAmount ?? undefined,
                   depositPaid: rec.depositPaid ?? false,
-                  depositPaidAt: rec.depositPaid ? new Date(rec.leaseStart) : undefined,
+                  depositPaidAt: rec.depositPaid ? leaseStartDate : undefined,
                   status: "active",
                 },
               });
