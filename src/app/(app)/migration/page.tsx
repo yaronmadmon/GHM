@@ -23,7 +23,10 @@ interface DoneStats {
   leases: number;
   payments: number;
   transactions: number;
+  updated: number;
+  unchanged: number;
   skipped: number;
+  notices: string[];
   errors: string[];
 }
 
@@ -349,7 +352,18 @@ export default function MigrationPage() {
     setCommitPhase("importing");
     const total = records.length;
     setProgress({ done: 0, total });
-    const agg: DoneStats = { tenants: 0, properties: 0, leases: 0, payments: 0, transactions: 0, skipped: 0, errors: [] };
+    const agg: DoneStats = {
+      tenants: 0,
+      properties: 0,
+      leases: 0,
+      payments: 0,
+      transactions: 0,
+      updated: 0,
+      unchanged: 0,
+      skipped: 0,
+      notices: [],
+      errors: [],
+    };
 
     for (let i = 0; i < records.length; i += CHUNK_SIZE) {
       const chunk = records.slice(i, i + CHUNK_SIZE);
@@ -365,7 +379,10 @@ export default function MigrationPage() {
         agg.leases += d.leases ?? 0;
         agg.payments += d.payments ?? 0;
         agg.transactions += d.transactions ?? 0;
+        agg.updated += d.updated ?? 0;
+        agg.unchanged += d.unchanged ?? 0;
         agg.skipped += d.skipped ?? 0;
+        agg.notices.push(...(d.notices ?? []));
         agg.errors.push(...(d.errors ?? []));
       } else {
         agg.errors.push(`Batch ${Math.floor(i / CHUNK_SIZE) + 1} failed`);
@@ -556,6 +573,8 @@ export default function MigrationPage() {
               { label: "Leases created", value: done.leases, color: "text-purple-600" },
               { label: "Payment records", value: done.payments, color: "text-emerald-600" },
               ...(done.transactions > 0 ? [{ label: "Fees & charges", value: done.transactions, color: "text-orange-600" }] : []),
+              ...(done.updated > 0 ? [{ label: "Records updated", value: done.updated, color: "text-blue-600" }] : []),
+              ...(done.unchanged > 0 ? [{ label: "Already current", value: done.unchanged, color: "text-muted-foreground" }] : []),
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-muted/40 rounded-xl p-4 border">
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -563,6 +582,17 @@ export default function MigrationPage() {
               </div>
             ))}
           </div>
+          {done.notices.length > 0 && (
+            <div className="text-left rounded-xl bg-blue-50 border border-blue-200 p-4 space-y-1">
+              <p className="text-sm font-medium flex items-center gap-1.5 text-blue-800">
+                <CheckCircle className="h-4 w-4" /> No update needed
+              </p>
+              {done.notices.slice(0, 5).map((notice, i) => (
+                <p key={i} className="text-xs text-blue-700 pl-5">{notice}</p>
+              ))}
+              {done.notices.length > 5 && <p className="text-xs text-blue-600 pl-5">...and {done.notices.length - 5} more</p>}
+            </div>
+          )}
           {done.errors.length > 0 && (
             <div className="text-left rounded-xl bg-yellow-50 border border-yellow-200 p-4 space-y-1">
               <p className="text-sm font-medium flex items-center gap-1.5 text-yellow-800">

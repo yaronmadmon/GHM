@@ -167,6 +167,72 @@ function parseMoney(value: string | undefined) {
   return Number(value.replace(/[$,]/g, ""));
 }
 
+function roundMoney(value: number | undefined | null) {
+  return Math.round(Number(value ?? 0) * 100) / 100;
+}
+
+function dateKey(value: Date | string) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+
+function importedLedgerDescription(row: NonNullable<ExtractedTenant["ledgerRows"]>[number]) {
+  return `[Imported ledger] ${row.description}${row.runningBalance != null ? ` (balance: $${row.runningBalance})` : ""}`;
+}
+
+function ledgerRowKey(row: NonNullable<ExtractedTenant["ledgerRows"]>[number]) {
+  return [
+    dateKey(row.date),
+    row.kind === "charge" ? "income" : "expense",
+    row.category,
+    roundMoney(row.amount).toFixed(2),
+    importedLedgerDescription(row),
+  ].join("|");
+}
+
+function transactionKey(transaction: {
+  date: Date;
+  type: string;
+  category: string;
+  amount: unknown;
+  description: string | null;
+}) {
+  return [
+    dateKey(transaction.date),
+    transaction.type,
+    transaction.category,
+    roundMoney(Number(transaction.amount)).toFixed(2),
+    transaction.description ?? "",
+  ].join("|");
+}
+
+function keysMatch(expected: string[], actual: string[]) {
+  if (expected.length !== actual.length) return false;
+  const counts = new Map<string, number>();
+  for (const key of expected) counts.set(key, (counts.get(key) ?? 0) + 1);
+  for (const key of actual) {
+    const count = counts.get(key) ?? 0;
+    if (count <= 0) return false;
+    count === 1 ? counts.delete(key) : counts.set(key, count - 1);
+  }
+  return counts.size === 0;
+}
+
+function leaseMatchesRecord(lease: {
+  startDate: Date;
+  endDate: Date | null;
+  rentAmount: unknown;
+  depositAmount: unknown | null;
+  depositPaid: boolean;
+}, rec: ExtractedTenant, leaseStartDate: Date) {
+  return dateKey(lease.startDate) === dateKey(leaseStartDate)
+    && dateKey(lease.endDate ?? "") === dateKey(safeDate(rec.leaseEnd) ?? "")
+    && roundMoney(Number(lease.rentAmount)) === roundMoney(rec.rentAmount)
+    && roundMoney(Number(lease.depositAmount ?? 0)) === roundMoney(rec.depositAmount ?? 0)
+    && lease.depositPaid === Boolean(rec.depositPaid);
+}
+
 function isoFromLedgerDate(value: string) {
   const [month, day, year] = value.split("/").map(Number);
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -495,7 +561,10 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
         leases: 0,
         payments: 0,
         transactions: 0,
+        updated: 0,
+        unchanged: 0,
         skipped: 0,
+        notices: [] as string[],
         errors: [] as string[],
       };
 
@@ -571,6 +640,23 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
                 unitId: unit.id,
                 tenants: { some: { tenantId: tenant.id } },
               },
+              include: {
+                transactions: {
+                  where: {
+                    OR: [
+                      { description: { startsWith: "[Imported ledger]" } },
+                      { description: { startsWith: "[Imported]" } },
+                    ],
+                  },
+                  select: {
+                    date: true,
+                    type: true,
+                    category: true,
+                    amount: true,
+                    description: true,
+                  },
+                },
+              },
             });
 
             if (!existingLease) {
@@ -592,6 +678,7 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
 
               // Update unit status
               await prisma.unit.update({ where: { id: unit.id }, data: { status: "occupied" } });
+              await prisma.property.update({ where: { id: property.id }, data: { status: "occupied" } });
 
               if (options.createPayments) {
                 // 3a. Import rent payment history records
@@ -711,7 +798,7 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
                         category: row.category,
                         amount: row.amount,
                         date: d,
-                        description: `[Imported ledger] ${row.description}${row.runningBalance != null ? ` (balance: $${row.runningBalance})` : ""}`,
+                        description: importedLedgerDescription(row),
                       },
                     });
                     if (existing) continue;
@@ -725,7 +812,7 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
                         category: row.category,
                         amount: row.amount,
                         date: d,
-                        description: `[Imported ledger] ${row.description}${row.runningBalance != null ? ` (balance: $${row.runningBalance})` : ""}`,
+                        description: importedLedgerDescription(row),
                         createdById: userId,
                       },
                     });
@@ -783,7 +870,19 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
             } else if (options.createPayments && rec.ledgerRows?.length) {
               // A tenant ledger is authoritative. If this lease was previously
               // created by the older monthly-summary importer, replace those
-              // imported financial rows with the exact ledger rows.
+              // imported financial rows with the exact ledger rows. If the
+              // same ledger was uploaded again, do not touch the data.
+              const expectedLedgerKeys = rec.ledgerRows.map(ledgerRowKey);
+              const existingLedgerKeys = existingLease.transactions.map(transactionKey);
+              const isSameLedger = keysMatch(expectedLedgerKeys, existingLedgerKeys);
+              const isSameLease = leaseMatchesRecord(existingLease, rec, leaseStartDate);
+
+              if (isSameLedger && isSameLease) {
+                results.unchanged++;
+                results.notices.push(`${rec.firstName} ${rec.lastName}: ledger is already up to date`);
+                continue;
+              }
+
               await prisma.lease.update({
                 where: { id: existingLease.id },
                 data: {
@@ -797,6 +896,7 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
                 },
               });
               await prisma.unit.update({ where: { id: unit.id }, data: { status: "occupied" } });
+              await prisma.property.update({ where: { id: property.id }, data: { status: "occupied" } });
               await prisma.rentPayment.deleteMany({ where: { leaseId: existingLease.id } });
               await prisma.transaction.deleteMany({
                 where: {
@@ -821,12 +921,13 @@ LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly
                     category: row.category,
                     amount: row.amount,
                     date: d,
-                    description: `[Imported ledger] ${row.description}${row.runningBalance != null ? ` (balance: $${row.runningBalance})` : ""}`,
+                    description: importedLedgerDescription(row),
                     createdById: userId,
                   },
                 });
                 results.transactions++;
               }
+              results.updated++;
             }
           }
         } catch (err) {

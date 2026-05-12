@@ -22,16 +22,28 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
     if (!tenant?.email) return Response.json({ error: "Tenant has no email address" }, { status: 400 });
 
     const token = crypto.randomBytes(32).toString("hex");
+    const previousToken = lease.signingToken;
+    const previousStatus = lease.signingStatus;
     await prisma.lease.update({
       where: { id },
       data: { signingToken: token, signingStatus: "sent" },
     });
 
     const signUrl = `${APP_URL}/lease-sign/${token}`;
-    await sendLeaseForSigning(tenant.email, `${tenant.firstName} ${tenant.lastName}`, signUrl, lease.unit.property.name);
+    try {
+      await sendLeaseForSigning(tenant.email, `${tenant.firstName} ${tenant.lastName}`, signUrl, lease.unit.property.name);
+    } catch (err) {
+      await prisma.lease.update({
+        where: { id },
+        data: { signingToken: previousToken, signingStatus: previousStatus },
+      });
+      const message = err instanceof Error ? err.message : "Email delivery failed";
+      return Response.json({ error: message }, { status: 502 });
+    }
 
     return Response.json({ success: true, signUrl });
-  } catch {
+  } catch (err) {
+    console.error("Send lease for signing failed:", err);
     return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -51,7 +51,12 @@ interface Stage {
 }
 
 function buildStages(app: Application, lease: Lease | null): Stage[] {
-  const hasDoc = (type: string) => app.documents.some((d) => d.docType === type);
+  const hasDoc = (type: string) => app.documents.some((d) => d.docType === type || (type === "id" && d.docType === "government_id"));
+  const missingDocs = [
+    ["pay_stub", "Pay stub"],
+    ["government_id", "Government ID"],
+    ["bank_statement", "Bank stmt"],
+  ].filter(([type]) => !hasDoc(type)).map(([, label]) => label);
   const screeningOk = app.backgroundCheckStatus === "passed" || app.backgroundCheckStatus === "conditional";
 
   return [
@@ -85,7 +90,7 @@ function buildStages(app: Application, lease: Lease | null): Stage[] {
     {
       name: "5. Documents",
       required: ["Pay stub", "Government ID", "Bank statement"],
-      status: (hasDoc("pay_stub") && hasDoc("id") && hasDoc("bank_statement")) ? "pass" : app.documents.length > 0 ? "pending" : "fail",
+      status: missingDocs.length === 0 ? "pass" : app.documents.length > 0 ? "pending" : "fail",
       detail: `${app.documents.length} doc(s) · ${["pay_stub","id","bank_statement"].filter(t => !hasDoc(t)).map(t => ({ pay_stub:"Pay stub", id:"ID", bank_statement:"Bank stmt"})[t]).join(", ") || "All present"}`,
       nextAction: app.documents.length === 0 ? 'Click "Request Documents" to advance status' : undefined,
     },

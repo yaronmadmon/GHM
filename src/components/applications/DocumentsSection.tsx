@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FileText, Plus, Trash2, ExternalLink, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,6 +39,7 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
   const [form, setForm] = useState({ name: "", url: "", docType: "pay_stub" });
   const [adding, setAdding] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<AppDocument | null>(null);
 
   useEffect(() => {
     fetch(`/api/applications/${applicationId}/documents`)
@@ -78,6 +80,8 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
   }
 
   const coveredTypes = new Set(docs.map((d) => d.docType));
+  const canPreview = (doc: AppDocument) => doc.url.startsWith("data:image/") || doc.url.startsWith("data:application/pdf");
+  const isPdf = previewDoc?.url.startsWith("data:application/pdf");
 
   return (
     <div className="space-y-3">
@@ -107,7 +111,11 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 {doc.url && doc.url !== "[stored]" && (
-                  doc.url.startsWith("data:") ? (
+                  canPreview(doc) ? (
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Preview" onClick={() => setPreviewDoc(doc)}>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : doc.url.startsWith("data:") ? (
                     <a href={doc.url} download={doc.name}>
                       <Button variant="ghost" size="icon" className="h-7 w-7" title="Download"><ExternalLink className="h-3.5 w-3.5" /></Button>
                     </a>
@@ -158,6 +166,24 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
           <Plus className="h-3.5 w-3.5" />Add Document
         </Button>
       )}
+
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{previewDoc?.name}</DialogTitle>
+          </DialogHeader>
+          {previewDoc && (
+            <div className="max-h-[75vh] overflow-auto rounded-lg border bg-muted/20">
+              {isPdf ? (
+                <iframe src={previewDoc.url} title={previewDoc.name} className="h-[75vh] w-full" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={previewDoc.url} alt={previewDoc.name} className="mx-auto max-h-[75vh] w-auto max-w-full object-contain" />
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

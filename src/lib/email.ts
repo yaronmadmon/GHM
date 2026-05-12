@@ -1,12 +1,19 @@
 import { Resend } from "resend";
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM = process.env.EMAIL_FROM ?? "GHM <noreply@resend.dev>";
 const APP_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+let resend: Resend | null = null;
+
+function getResend() {
+  if (!process.env.RESEND_API_KEY) return null;
+  resend ??= new Resend(process.env.RESEND_API_KEY);
+  return resend;
+}
 
 async function send(to: string, subject: string, html: string) {
-  if (!resend) { throw new Error("Email not configured: RESEND_API_KEY is missing"); }
-  await resend.emails.send({ from: FROM, to, subject, html });
+  const client = getResend();
+  if (!client) { throw new Error("Email not configured: RESEND_API_KEY is missing"); }
+  await client.emails.send({ from: FROM, to, subject, html });
 }
 
 export async function sendNewApplicationAlert(to: string, applicantName: string, propertyName: string, applicationUrl: string) {

@@ -6,7 +6,7 @@ import { z } from "zod";
 const createSchema = z.object({
   name: z.string().min(1),
   url: z.string().url("Must be a valid URL"),
-  docType: z.enum(["pay_stub", "id", "bank_statement", "other"]),
+  docType: z.enum(["pay_stub", "government_id", "bank_statement", "tax_return", "previous_lease", "other"]),
 });
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
