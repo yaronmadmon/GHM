@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { MessageSquare, X, Send, Bot, User, Loader2, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Web Speech API types (not always in TS default lib)
+// Web Speech API types (speech input only)
 interface ISpeechRecognition extends EventTarget {
   lang: string;
   interimResults: boolean;
@@ -32,7 +32,7 @@ interface Message {
   content: string;
 }
 
-// Strip markdown for clean TTS output
+// Strip markdown so TTS reads clean prose
 function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -46,22 +46,6 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-function speak(text: string, onEnd?: () => void) {
-  if (typeof window === "undefined" || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(stripMarkdown(text));
-  utterance.rate = 1.05;
-  utterance.pitch = 1;
-  // Prefer a natural-sounding voice
-  const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find((v) =>
-    /google us english|samantha|karen|daniel|moira|fiona/i.test(v.name)
-  ) ?? voices.find((v) => v.lang.startsWith("en") && !v.name.toLowerCase().includes("zira"));
-  if (preferred) utterance.voice = preferred;
-  if (onEnd) utterance.onend = onEnd;
-  window.speechSynthesis.speak(utterance);
-}
-
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -70,53 +54,88 @@ export function ChatWidget() {
   const [listening, setListening] = useState(false);
   const [voiceOut, setVoiceOut] = useState(true);
   const [speaking, setSpeaking] = useState(false);
-  const [speechSupported, setSpeechSupported] = useState(false);
+  const [micSupported, setMicSupported] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const voiceOutRef = useRef(voiceOut);
   voiceOutRef.current = voiceOut;
 
-  // Check browser support on mount
+  // Check mic support on mount
   useEffect(() => {
     const SpeechRec = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    setSpeechSupported(!!SpeechRec && !!window.speechSynthesis);
-
-    // Pre-load voices (some browsers need this)
-    if (window.speechSynthesis) {
-      window.speechSynthesis.getVoices();
-      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
-    }
-
+    setMicSupported(!!SpeechRec);
     return () => {
-      window.speechSynthesis?.cancel();
+      stopAudio();
       recognitionRef.current?.abort();
     };
   }, []);
 
+  // Welcome message when panel opens
   useEffect(() => {
     if (open && messages.length === 0) {
-      const welcome = "Hi! I'm your property assistant with full control over your portfolio. I can read data and take actions — ask me anything or use the mic to speak.";
+      const welcome = "Hey! I'm your property assistant. I can look things up and take actions for you — just tell me what you need.";
       setMessages([{
         id: "welcome",
         role: "assistant",
-        content: "Hi! I'm your property assistant with full control over your portfolio. I can read data and take actions.\n\nExamples:\n• *What's John Smith's balance?*\n• *Add a maintenance request for 123 Main — leaking roof, high priority*\n• *Send a message to Sarah Johnson about her lease renewal*\n• *Create a tenant: Mike Lee, mike@example.com*\n• *Add a vendor: Bob's Plumbing, phone 555-0100*\n• *Record a $1,500 payment from John Smith*\n• *Mark the kitchen faucet request as in progress*",
+        content: welcome,
       }]);
-      if (voiceOutRef.current) speak(welcome);
+      if (voiceOutRef.current) speakText(welcome);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming]);
 
-  // Stop TTS when panel closes
+  // Stop audio when panel closes
   useEffect(() => {
     if (!open) {
-      window.speechSynthesis?.cancel();
-      setSpeaking(false);
+      stopAudio();
       stopListening();
     }
   }, [open]);
+
+  function stopAudio() {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
+    setSpeaking(false);
+  }
+
+  async function speakText(text: string) {
+    if (!voiceOutRef.current) return;
+    stopAudio();
+    setSpeaking(true);
+    try {
+      const res = await fetch("/api/ai/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: stripMarkdown(text) }),
+      });
+      if (!res.ok) { setSpeaking(false); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+        setSpeaking(false);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+        setSpeaking(false);
+      };
+      await audio.play();
+    } catch {
+      setSpeaking(false);
+    }
+  }
 
   function stopListening() {
     if (recognitionRef.current) {
@@ -125,6 +144,8 @@ export function ChatWidget() {
     }
     setListening(false);
   }
+
+  const sendMessageRef = useRef<(() => void) | null>(null);
 
   const toggleMic = useCallback(() => {
     if (listening) {
@@ -135,8 +156,7 @@ export function ChatWidget() {
     const SpeechRec = window.SpeechRecognition ?? (window as any).webkitSpeechRecognition;
     if (!SpeechRec) return;
 
-    window.speechSynthesis?.cancel();
-    setSpeaking(false);
+    stopAudio();
 
     const recognition = new SpeechRec() as ISpeechRecognition;
     recognition.lang = "en-US";
@@ -148,21 +168,15 @@ export function ChatWidget() {
 
     recognition.onresult = (e) => {
       const results = e.results as { [i: number]: { [i: number]: { transcript: string } } };
-      const transcript = Object.values(results)
-        .map((r) => r[0].transcript)
-        .join("");
+      const transcript = Object.values(results).map((r) => r[0].transcript).join("");
       setInput(transcript);
     };
 
     recognition.onend = () => {
       setListening(false);
       recognitionRef.current = null;
-      // Auto-send if there's a result
       setInput((current) => {
-        if (current.trim()) {
-          // Trigger send on next tick so state is flushed
-          setTimeout(() => sendMessageRef.current?.(), 50);
-        }
+        if (current.trim()) setTimeout(() => sendMessageRef.current?.(), 50);
         return current;
       });
     };
@@ -175,16 +189,12 @@ export function ChatWidget() {
     recognition.start();
   }, [listening]);
 
-  // Use a ref so the recognition onend closure can call the latest sendMessage
-  const sendMessageRef = useRef<(() => void) | null>(null);
-
   const sendMessage = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
 
     stopListening();
-    window.speechSynthesis?.cancel();
-    setSpeaking(false);
+    stopAudio();
 
     const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: text };
     const assistantId = crypto.randomUUID();
@@ -239,21 +249,18 @@ export function ChatWidget() {
         }
       }
 
-      // Speak the completed response
       if (voiceOutRef.current && accumulated) {
-        setSpeaking(true);
-        speak(accumulated, () => setSpeaking(false));
+        speakText(accumulated);
       }
     } catch {
       setMessages((prev) =>
-        prev.map((m) => m.id === assistantId ? { ...m, content: "Sorry, I encountered an error. Please try again." } : m)
+        prev.map((m) => m.id === assistantId ? { ...m, content: "Sorry, something went wrong. Try again." } : m)
       );
     } finally {
       setStreaming(false);
     }
   }, [input, streaming, messages]);
 
-  // Keep ref in sync with latest sendMessage
   useEffect(() => {
     sendMessageRef.current = () => sendMessage();
   }, [sendMessage]);
@@ -268,10 +275,7 @@ export function ChatWidget() {
   function toggleVoiceOut() {
     const next = !voiceOut;
     setVoiceOut(next);
-    if (!next) {
-      window.speechSynthesis?.cancel();
-      setSpeaking(false);
-    }
+    if (!next) stopAudio();
   }
 
   return (
@@ -298,22 +302,19 @@ export function ChatWidget() {
             <div>
               <p className="font-semibold text-sm">Property Assistant</p>
               <p className="text-xs text-muted-foreground">
-                {speaking ? "Speaking…" : streaming ? "Thinking…" : listening ? "Listening…" : "Powered by Claude"}
+                {speaking ? "Speaking…" : streaming ? "Thinking…" : listening ? "Listening…" : "Ready"}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-1">
-              {/* Voice output toggle */}
-              {speechSupported && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-7 w-7", voiceOut ? "text-primary" : "text-muted-foreground")}
-                  onClick={toggleVoiceOut}
-                  title={voiceOut ? "Mute assistant voice" : "Enable assistant voice"}
-                >
-                  {voiceOut ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-7 w-7", voiceOut ? "text-primary" : "text-muted-foreground")}
+                onClick={toggleVoiceOut}
+                title={voiceOut ? "Mute assistant voice" : "Enable assistant voice"}
+              >
+                {voiceOut ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </Button>
               <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200">Online</Badge>
             </div>
           </div>
@@ -358,8 +359,7 @@ export function ChatWidget() {
                 disabled={streaming}
                 rows={1}
               />
-              {/* Mic button */}
-              {speechSupported && (
+              {micSupported && (
                 <Button
                   size="icon"
                   variant={listening ? "default" : "outline"}
@@ -371,7 +371,6 @@ export function ChatWidget() {
                   {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </Button>
               )}
-              {/* Send button */}
               <Button
                 size="icon"
                 className="h-10 w-10 shrink-0"
@@ -382,7 +381,7 @@ export function ChatWidget() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              {speechSupported
+              {micSupported
                 ? "Enter to send · Tap mic to speak · AI voice " + (voiceOut ? "on" : "off")
                 : "Enter to send · Shift+Enter for new line"}
             </p>

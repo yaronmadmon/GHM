@@ -12,9 +12,10 @@ datasource db {
 // ─────────────────────────────────────────
 model Organization {
   id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  name             String
+  stripeAccountId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   users               User[]
   properties          Property[]
@@ -286,10 +287,12 @@ model RentPayment {
   status         String    @default("pending") // paid | partial | overdue | pending
   dueDate        DateTime
   paidAt         DateTime?
-  paymentMethod  String? // cash | check | ach | zelle | venmo | other
-  lateFeeApplied Decimal?  @db.Decimal(10, 2)
-  notes          String?
-  recordedById   String?
+  paymentMethod          String?  // cash | check | ach | zelle | venmo | stripe | other
+  lateFeeApplied         Decimal? @db.Decimal(10, 2)
+  notes                  String?
+  recordedById           String?
+  stripePaymentIntentId  String?  @unique
+  stripeFeeAmount        Decimal? @db.Decimal(10, 2)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

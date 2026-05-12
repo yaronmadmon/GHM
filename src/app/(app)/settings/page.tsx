@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { User, Building2, DollarSign } from "lucide-react";
+import { User, DollarSign, CreditCard, CheckCircle2, XCircle } from "lucide-react";
 
 interface Profile {
   name: string;
@@ -33,6 +33,7 @@ export default function SettingsPage() {
   });
   const [password, setPassword] = useState({ current: "", next: "", confirm: "" });
   const [saving, setSaving] = useState<string | null>(null);
+  const [stripeStatus, setStripeStatus] = useState<{ connected: boolean; accountId: string | null } | null>(null);
 
   useEffect(() => {
     fetch("/api/settings/profile").then((r) => r.json()).then((d) => {
@@ -41,6 +42,10 @@ export default function SettingsPage() {
 
     fetch("/api/settings/late-fees").then((r) => r.json()).then((d) => {
       if (d.feeType) setLateFee(d);
+    }).catch(() => {});
+
+    fetch("/api/settings/stripe-status").then((r) => r.json()).then((d) => {
+      setStripeStatus(d);
     }).catch(() => {});
   }, []);
 
@@ -68,6 +73,14 @@ export default function SettingsPage() {
     setSaving(null);
     if (res.ok) { toast.success("Password updated"); setPassword({ current: "", next: "", confirm: "" }); }
     else { const d = await res.json(); toast.error(d.error ?? "Failed to update password"); }
+  }
+
+  async function disconnectStripe() {
+    setSaving("stripe");
+    await fetch("/api/settings/stripe-status", { method: "DELETE" });
+    setStripeStatus({ connected: false, accountId: null });
+    setSaving(null);
+    toast.success("Stripe disconnected");
   }
 
   async function saveLateFees() {
@@ -128,6 +141,37 @@ export default function SettingsPage() {
           <Button onClick={savePassword} disabled={saving === "password" || !password.current || !password.next}>
             {saving === "password" ? "Updating..." : "Update Password"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Stripe Connect */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" /> Online Payments (Stripe)</CardTitle>
+          <CardDescription>Connect your Stripe account so tenants can pay rent online. They pay the processing fee on top of rent.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {stripeStatus === null ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : stripeStatus.connected ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-emerald-600 font-medium">
+                <CheckCircle2 className="h-4 w-4" /> Stripe account connected
+              </div>
+              <p className="text-xs text-muted-foreground">Tenants can now pay rent from their portal. Payments go directly to your Stripe account.</p>
+              <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={disconnectStripe} disabled={saving === "stripe"}>
+                <XCircle className="h-4 w-4" />{saving === "stripe" ? "Disconnecting..." : "Disconnect Stripe"}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Not connected. Click below to link your Stripe account — takes about 2 minutes.</p>
+              <a href="/api/stripe/connect">
+                <Button className="gap-2"><CreditCard className="h-4 w-4" />Connect Stripe Account</Button>
+              </a>
+              <p className="text-xs text-muted-foreground">No Stripe account? You can create one for free during setup at stripe.com.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

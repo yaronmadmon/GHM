@@ -35,7 +35,7 @@ export interface ExtractedTenant {
   }>;
   ledgerEntries?: Array<{
     date: string;             // YYYY-MM-DD
-    type: "late_fee" | "legal_fee" | "court_cost" | "attorney_fee" | "nsf_fee" | "credit" | "adjustment" | "deposit" | "other";
+    type: "late_fee" | "legal_fee" | "court_cost" | "attorney_fee" | "nsf_fee" | "returned_payment" | "credit" | "adjustment" | "deposit" | "other";
     description: string;      // verbatim from source document
     amount: number;           // positive = charge/debit, negative = credit/payment
     runningBalance?: number;  // balance after this entry if shown in source
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
 
       const extractionPrompt = `You are a data extraction assistant for a property management app. Extract every tenant/renter you can find from this document.
 
-IMPORTANT: This data may be used in legal proceedings. Extract EXACTLY what is in the document — do not infer, estimate, or fill in missing values.
+IMPORTANT: This data may be used in legal proceedings. Your job is to EXTRACT, not to filter or decide what matters. Capture every row, every charge, every fee, every payment — exactly as it appears. Do not skip anything. Do not summarize or combine entries. Do not decide what is "relevant". If you see it in the document, it goes in the output.
 
 Return ONLY a valid JSON array — no explanation, no markdown, no code fences. Each element:
 {
@@ -101,29 +101,32 @@ FIELD RULES:
 - Merge multiple rows for the same tenant into one record.
 - Return [] only if there are absolutely no people or rental records.
 
-PAYMENT HISTORY (paymentHistory array) — rent money the tenant actually paid:
-- Include EVERY individual rent payment event. If a tenant made 3 separate payments in one month, list each one separately with its actual date and amount.
-- These are ONLY money-in events: rent received from the tenant.
-- Do NOT include rent charges (what the tenant owes) — only actual payments received.
-- status: "paid" if fully paid, "partial" if only part of rent was paid that month, "overdue" if still owed, "pending" if not yet received.
+PAYMENT HISTORY (paymentHistory array) — one entry per lease month, from lease start through today:
+- Include EVERY calendar month from the lease start date through the current month — do NOT skip any month, even if no payment was received.
+- For months where rent WAS received: date = the actual receipt date, amount = the amount received, status = "paid" (if full rent covered) or "partial" (if only part was paid), method = payment method if shown.
+- For months where NO payment was received (tenant owes but did not pay): date = the first day of that month (YYYY-MM-01), amount = 0, status = "overdue". YOU MUST STILL INCLUDE THESE MONTHS.
+- If a tenant made multiple payments in one month, list each one separately.
+- CRITICAL — Balance column is NOT a payment: The "Balance" or "Running Balance" column in a ledger shows cumulative debt owed — NEVER use those figures as an "amount". Only extract amounts from columns labeled "Received", "Payment", "Paid", or similar. A running balance of $8,000 does NOT mean $8,000 was paid.
 - method: payment method if shown (cash, check, money order, ACH, etc.).
 
-LEDGER ENTRIES (ledgerEntries array) — fees, penalties, and non-rent charges/credits ONLY:
-- *** CRITICAL: DO NOT include regular monthly rent charges in ledgerEntries. DO NOT include rent payments in ledgerEntries. Both of those go ONLY in paymentHistory. ***
-- ledgerEntries is EXCLUSIVELY for:
-  * Late fees or late charges → type: "late_fee"
-  * NSF / bounced check fees → type: "nsf_fee"
-  * Attorney fees / legal fees → type: "attorney_fee"
-  * Court filing costs / court charges → type: "court_cost"
+LEDGER ENTRIES (ledgerEntries array) — EVERY row that is NOT a regular monthly rent charge or rent payment:
+- DO NOT include regular monthly rent charges (e.g. "Rent — March 2025") in ledgerEntries — those go in paymentHistory.
+- DO NOT include the tenant's rent payments in ledgerEntries — those go in paymentHistory.
+- EVERYTHING ELSE goes in ledgerEntries. Do not skip any row. Do not decide it is unimportant. Examples:
+  * Late fees, late charges → type: "late_fee"
+  * NSF fees, bounced check fees → type: "nsf_fee"
+  * Returned / rejected / reversed payments (a payment that was submitted but came back) → type: "returned_payment" with POSITIVE amount (it adds back to what is owed)
+  * Attorney fees, legal representation fees → type: "attorney_fee"
+  * Court filing fees, court costs → type: "court_cost"
   * Other legal fees → type: "legal_fee"
-  * Credits or refunds given to tenant → type: "credit" (use negative amount)
-  * Balance adjustments → type: "adjustment"
-  * Security deposit charges → type: "deposit"
-  * Anything else that is NOT a monthly rent charge or rent payment → type: "other"
-- description: copy the exact text from the document, verbatim.
-- amount: positive for charges/debits to tenant, negative for credits.
-- runningBalance: include if a running balance column is visible in the source.
-- If the document IS a ledger, capture every non-rent fee row. Do not skip any fee or legal charge.`;
+  * Security deposit charges or deposit corrections → type: "deposit"
+  * Credits or refunds issued to the tenant → type: "credit" (use NEGATIVE amount)
+  * Balance corrections or adjustments → type: "adjustment"
+  * Utility charges, repairs billed to tenant, any other charge → type: "other"
+- description: copy the EXACT text from the document, word for word, including any codes or reference numbers.
+- amount: POSITIVE for charges/debits that increase what the tenant owes. NEGATIVE for credits that reduce what the tenant owes.
+- runningBalance: include the value from the "Balance" column for that row if one is shown.
+- DO NOT SKIP ANY ROW. When in doubt, include it with type "other". It is better to include something than to omit it.`;
 
       let message;
       let truncated = false;
@@ -415,9 +418,10 @@ LEDGER ENTRIES (ledgerEntries array) — fees, penalties, and non-rent charges/c
                   }
                 }
 
-                // 3b. If there's an outstanding balance not covered by payment history,
-                //     create an overdue record for the current period
-                if (rec.balance && rec.balance > 0) {
+                // 3b. If there's an outstanding balance but no payment history at all,
+                //     create an overdue record for the current period as a fallback.
+                //     amountDue must be the monthly rent, NOT the total balance.
+                if (rec.balance && rec.balance > 0 && !rec.paymentHistory?.length) {
                   const now = new Date();
                   const year = now.getFullYear();
                   const month = now.getMonth() + 1;
@@ -436,7 +440,7 @@ LEDGER ENTRIES (ledgerEntries array) — fees, penalties, and non-rent charges/c
                         leaseId: lease.id,
                         periodYear: year,
                         periodMonth: month,
-                        amountDue: rec.balance,
+                        amountDue: rec.rentAmount ?? 0,
                         amountPaid: 0,
                         status: "overdue",
                         dueDate: new Date(year, month - 1, 1),
@@ -455,6 +459,7 @@ LEDGER ENTRIES (ledgerEntries array) — fees, penalties, and non-rent charges/c
                   const categoryMap: Record<string, string> = {
                     late_fee: "late_fee",
                     nsf_fee: "late_fee",
+                    returned_payment: "other",
                     attorney_fee: "other",
                     legal_fee: "other",
                     court_cost: "other",

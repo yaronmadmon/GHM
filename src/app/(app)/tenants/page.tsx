@@ -12,80 +12,151 @@ export default async function TenantsPage() {
   const session = await getSession();
   if (!session?.user) redirect("/login");
 
-  const tenants = await prisma.tenant.findMany({
-    where: { organizationId: session.user.organizationId },
+  const orgId = session.user.organizationId;
+
+  // Get all active leases with their tenants (one card per unit)
+  const activeLeases = await prisma.lease.findMany({
+    where: { organizationId: orgId, status: "active" },
     include: {
-      leaseLinks: {
-        where: { lease: { status: "active" } },
-        include: { lease: { include: { unit: { include: { property: true } } } } },
-      },
+      unit: { include: { property: true } },
+      tenants: { include: { tenant: true }, orderBy: { isPrimary: "desc" } },
     },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Group by unit — if multiple active leases exist for the same unit (e.g. imported separately),
+  // merge their tenants into a single card rather than showing duplicates
+  type LeaseRow = (typeof activeLeases)[0];
+  const unitMap = new Map<string, { lease: LeaseRow; tenants: LeaseRow["tenants"] }>();
+  for (const lease of activeLeases) {
+    const existing = unitMap.get(lease.unitId);
+    if (existing) {
+      const seen = new Set(existing.tenants.map((lt) => lt.tenantId));
+      for (const lt of lease.tenants) {
+        if (!seen.has(lt.tenantId)) {
+          existing.tenants.push(lt);
+          seen.add(lt.tenantId);
+        }
+      }
+    } else {
+      unitMap.set(lease.unitId, { lease, tenants: [...lease.tenants] });
+    }
+  }
+  const groupedUnits = [...unitMap.values()];
+
+  // Tenants with no active lease — shown individually
+  const tenantIdsWithLease = new Set(activeLeases.flatMap((l) => l.tenants.map((lt) => lt.tenantId)));
+  const unattached = await prisma.tenant.findMany({
+    where: { organizationId: orgId, id: { notIn: [...tenantIdsWithLease] } },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
+
+  const totalTenants = tenantIdsWithLease.size + unattached.length; // count of people, not cards
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Tenants</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{tenants.length} tenants</p>
+          <p className="text-muted-foreground text-sm mt-0.5">{totalTenants} tenant{totalTenants !== 1 ? "s" : ""}</p>
         </div>
         <Link href="/tenants/new">
           <Button size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />
-            Add tenant
+            <Plus className="h-4 w-4" />Add tenant
           </Button>
         </Link>
       </div>
 
-      {tenants.length === 0 ? (
+      {totalTenants === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-xl">
           <Users className="h-12 w-12 text-muted-foreground/40 mb-4" />
           <h3 className="font-semibold text-lg">No tenants yet</h3>
           <p className="text-muted-foreground text-sm mt-1 mb-4">Add tenants and link them to leases</p>
-          <Link href="/tenants/new">
-            <Button size="sm"><Plus className="h-4 w-4 mr-2" />Add tenant</Button>
-          </Link>
+          <Link href="/tenants/new"><Button size="sm"><Plus className="h-4 w-4 mr-2" />Add tenant</Button></Link>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {tenants.map((tenant) => {
-            const activeLease = tenant.leaseLinks.find((l) => l.lease?.status === "active")?.lease;
+          {/* One card per unit (groups co-tenants even across separate leases) */}
+          {groupedUnits.map(({ lease, tenants }) => {
+            const tenantList = tenants.map((lt) => lt.tenant);
+            const primary = tenantList[0];
+            if (!primary) return null;
             return (
-              <Link key={tenant.id} href={`/tenants/${tenant.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardContent className="p-4 flex items-start gap-4">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-semibold text-primary shrink-0">
-                      {getInitials(`${tenant.firstName} ${tenant.lastName}`)}
+              <Card key={lease.unitId} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-4 space-y-3">
+                  {/* Avatars + unit */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex -space-x-2">
+                      {tenantList.slice(0, 3).map((t) => (
+                        <div key={t.id} className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-semibold text-primary text-sm ring-2 ring-background shrink-0">
+                          {getInitials(`${t.firstName} ${t.lastName}`)}
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold">{tenant.firstName} {tenant.lastName}</h3>
-                        {activeLease ? (
-                          <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200">Active</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-xs text-muted-foreground">No lease</Badge>
-                        )}
-                      </div>
-                      {activeLease && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {activeLease.unit.property.name} · Unit {activeLease.unit.unitNumber}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        {tenant.email && (
-                          <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{tenant.email}</span>
-                        )}
-                        {tenant.phone && (
-                          <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{tenant.phone}</span>
-                        )}
-                      </div>
+                    <div className="min-w-0">
+                      <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200">Active</Badge>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {lease.unit.property.name} · Unit {lease.unit.unitNumber}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                  </div>
+
+                  {/* Each tenant's info */}
+                  <div className="space-y-2 border-t pt-2">
+                    {tenantList.map((t, idx) => (
+                      <div key={t.id}>
+                        <Link href={`/tenants/${t.id}`} className="font-medium text-sm hover:text-primary transition-colors">
+                          {t.firstName} {t.lastName}
+                          {idx === 0 && tenantList.length > 1 && (
+                            <span className="ml-1.5 text-xs text-muted-foreground font-normal">(primary)</span>
+                          )}
+                        </Link>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                          {t.email && (
+                            <a href={`mailto:${t.email}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                              <Mail className="h-3 w-3" />{t.email}
+                            </a>
+                          )}
+                          {t.phone && (
+                            <a href={`tel:${t.phone}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                              <Phone className="h-3 w-3" />{t.phone}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Link href={`/leases/${lease.id}`} className="block text-xs text-primary hover:underline">
+                    View lease →
+                  </Link>
+                </CardContent>
+              </Card>
             );
           })}
+
+          {/* Tenants with no active lease */}
+          {unattached.map((tenant) => (
+            <Link key={tenant.id} href={`/tenants/${tenant.id}`}>
+              <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <CardContent className="p-4 flex items-start gap-4">
+                  <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-semibold text-muted-foreground shrink-0">
+                    {getInitials(`${tenant.firstName} ${tenant.lastName}`)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-sm">{tenant.firstName} {tenant.lastName}</h3>
+                      <Badge variant="outline" className="text-xs text-muted-foreground">No lease</Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 mt-1.5">
+                      {tenant.email && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="h-3 w-3" />{tenant.email}</span>}
+                      {tenant.phone && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="h-3 w-3" />{tenant.phone}</span>}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
         </div>
       )}
     </div>

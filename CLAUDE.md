@@ -111,6 +111,7 @@ src/
       import/smart/           # AI import: extract | check-conflicts | commit actions
       export/                 # Excel + multi-CSV export
       ai/chat/                # AI chat widget (gpt-4o, streaming, 24 tools)
+      ai/tts/                 # POST text → OpenAI TTS audio/mpeg (nova voice)
       portal/                 # Portal-scoped endpoints (all use requirePortalSession cookie auth)
         auth/[token]/         # Validate magic token → set session cookie
         logout/               # Clear session cookie
@@ -165,7 +166,8 @@ src/
       NotificationBell.tsx    # Bell icon + dropdown; side="right" (sidebar) | "bottom" (mobile)
       BottomNav.tsx           # Mobile bottom tab bar (5 key tabs)
     ai/ChatWidget.tsx         # Floating AI assistant — gpt-4o, 24 tools, voice in/out
-                              # Web Speech API for STT + TTS, no extra dependencies
+                              # STT: Web Speech API (SpeechRecognition) — mic input only
+                              # TTS: OpenAI nova voice via /api/ai/tts — NOT Web Speech API
     applications/             # DocumentsSection, InviteButton, ScreeningSection,
                               # WorkflowVerificationPanel
     leases/MoveInChecklist.tsx
@@ -202,8 +204,9 @@ All API routes return `Response.json(...)`. Errors return `{ error: string }` wi
 - **Model**: gpt-4o via `/api/ai/chat` (route has `export const maxDuration = 60` for Vercel timeout)
 - **Tools**: 24 tools defined in `src/lib/ai/tools.ts` (OpenAI function-calling format)
 - **Voice input**: Web Speech API (`SpeechRecognition`) — auto-sends on recognition end
-- **Voice output**: Web Speech API (`SpeechSynthesis`) — speaks assistant responses
+- **Voice output**: OpenAI TTS (`nova` voice) via `POST /api/ai/tts` → returns `audio/mpeg` → played via `new Audio(url)`. Do NOT use `window.speechSynthesis` for the assistant voice.
 - **Tool loop**: `finish_reason === "tool_calls"` → call handlers → send `role: "tool"` results → repeat
+- **Conversational behavior**: The system prompt instructs the AI to ask for one piece of information at a time when collecting details for a task (adding a property, creating a tenant, etc.). Never list all required fields upfront.
 - **Rule**: Any new workflow action must also get a corresponding tool in `tools.ts` + handler in `handlers.ts`
 
 `src/lib/ai/handlers.ts` — implements all 24 tools with direct Prisma calls. Signature: `handleTool(name, input, organizationId, userId)`.
@@ -213,7 +216,7 @@ All API routes return `Response.json(...)`. Errors return `{ error: string }` wi
 `api/import/smart/route.ts` — exports `ExtractedTenant` interface. Three actions:
 - `extract` — FormData file → gpt-4o (vision for images, text for PDF/CSV/XLSX) → `ExtractedTenant[]`
   - Images (PNG, JPG, WEBP, etc.): sent as base64 to GPT-4o vision API — reads screenshots and photos
-  - PDFs: text extracted with `pdf-parse`, then sent as text
+  - PDFs: text extracted with `pdf2json`, then sent as text
   - CSV/XLSX: parsed to CSV text, then sent as text
   - Pasted text: wrapped as a File("pasted.csv") on the frontend, same text path
 - `check-conflicts` — `{ emails: string[] }` → `{ existing: string[] }`
@@ -222,7 +225,20 @@ All API routes return `Response.json(...)`. Errors return `{ error: string }` wi
   - Property dedup: matches by name or street address
   - Unit dedup: matches by unitNumber within property
   - Payment dedup: upserts on `(leaseId, periodYear, periodMonth)` — safe to re-import; multiple payments per month are **summed**, not replaced
-  - `ledgerEntries` (fees, legal charges, credits) → committed as `Transaction` records — **never** include rent charges or payments in ledgerEntries
+  - `ledgerEntries` → committed as `Transaction` records
+
+### Smart Import extraction rules (critical — do not regress)
+
+**`paymentHistory`** — one entry per calendar month from lease start through today:
+- Months where rent was received: `date` = receipt date, `amount` = amount received, `status` = "paid"/"partial"
+- Months where NO payment was received: `date` = first of month, `amount` = 0, `status` = "overdue" — **must still be included**
+- The "Balance" or "Running Balance" column is cumulative debt — **never** use those figures as `amount`
+- `amountDue` in the DB is always the monthly rent (`rec.rentAmount`), never the total outstanding balance
+
+**`ledgerEntries`** — EVERY row that is not a regular monthly rent charge or rent payment:
+- Types: `late_fee`, `nsf_fee`, `returned_payment` (positive amount — adds back to owed), `attorney_fee`, `court_cost`, `legal_fee`, `deposit`, `credit` (negative amount), `adjustment`, `other`
+- Capture every row verbatim. When in doubt, use `type: "other"`. Do not skip anything.
+- `returned_payment`: a payment that was submitted but bounced/reversed — positive amount, increases what's owed
 
 Front-end at `(app)/migration/page.tsx`:
 - Review screen shows tenant **cards** (not a table) — one card per tenant, click-to-edit fields
@@ -290,14 +306,25 @@ Requires `RESEND_API_KEY`. Gracefully no-ops if key is missing (throws with clea
 
 `tenants/[id]/ledger/LedgerView.tsx` — client component, print-optimized.
 - Merges `RentPayment` records + `Transaction` records into one chronological table (charges, payments, running balance)
+- Sort order: chronological; on same date, charges come before payments
 - Print CSS uses `visibility: hidden` on `body *` + `visibility: visible` on `.ledger-document` — only the document renders in print/PDF
 - "Print / Save as PDF" calls `window.print()` — no library needed
 - "Send by Email" sheet → `POST /api/tenants/[id]/ledger/send` → Resend HTML email
+
+## Tenants Page (`/tenants`)
+
+- Groups tenants by **unit**, not by lease record — if two active leases exist for the same unit (e.g. imported separately), their tenants are merged into one card
+- Unattached tenants (no active lease) each get their own card with a "No lease" badge
+- Server Component — no event handlers on JSX elements (no `onClick` on `<a>` tags)
 
 ## Do Not
 - Run `prisma migrate` — always `prisma db push`
 - Initialize `new Resend(...)` at module top-level — always inside the async handler body
 - Call React hooks conditionally — all `useState`, `useEffect`, `useRouter` etc. must be at the component top level before any `if` or early return
 - Use `Decimal` values from Prisma directly in arithmetic — convert with `Number(value)` first
+- Pass Prisma objects with `Decimal` fields directly to Client Components — serialize with `Number()` in the server page first
+- Use `window.speechSynthesis` for AI voice output — always use `/api/ai/tts` (OpenAI nova voice)
+- Add `onClick` or other event handlers to JSX in Server Components — extract a Client Component instead
 - Use Anthropic SDK — the entire AI layer uses OpenAI (gpt-4o)
 - Add sidebar nav links for one-time flows (migration is reached via dashboard CTA, not nav)
+- Use `rec.balance` as `amountDue` in import commit — `amountDue` is always the monthly rent (`rec.rentAmount`)

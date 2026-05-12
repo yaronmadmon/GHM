@@ -109,8 +109,11 @@ function buildLedger(lease: Lease): LedgerRow[] {
     // Row for the payment received (if any)
     const paid = Number(p.amountPaid);
     if (paid > 0) {
+      const payDate = p.paidAt
+        ? new Date(p.paidAt)
+        : new Date(new Date(p.dueDate).getTime() + 23 * 60 * 60 * 1000); // end of due date if no paidAt
       rows.push({
-        date: p.paidAt ? new Date(p.paidAt) : new Date(p.dueDate),
+        date: payDate,
         description: `Payment received${p.paymentMethod ? ` (${p.paymentMethod})` : ""}`,
         charges: 0,
         payments: paid,
@@ -131,8 +134,16 @@ function buildLedger(lease: Lease): LedgerRow[] {
     });
   }
 
-  // Sort by date
-  rows.sort((a, b) => a.date.getTime() - b.date.getTime());
+  // Sort chronologically; on same date: charges first, payments last
+  rows.sort((a, b) => {
+    const diff = a.date.getTime() - b.date.getTime();
+    if (diff !== 0) return diff;
+    const aIsPayment = a.charges === 0 && a.payments > 0;
+    const bIsPayment = b.charges === 0 && b.payments > 0;
+    if (!aIsPayment && bIsPayment) return -1;
+    if (aIsPayment && !bIsPayment) return 1;
+    return 0;
+  });
 
   // Calculate running balance
   let balance = 0;

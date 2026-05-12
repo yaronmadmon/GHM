@@ -14,6 +14,7 @@ import {
   ClipboardList,
   TrendingUp,
   Sparkles,
+  Brain,
   ArrowRight,
   DoorOpen,
   FileText,
@@ -181,6 +182,25 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card className="border-primary/20 bg-card">
+        <CardContent className="flex flex-col gap-4 py-5 md:flex-row md:items-center">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+            <Brain className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm">Run a portfolio analysis</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Let AI review vacancies, rent opportunity, expenses, collections, renewals, and maintenance risk.
+            </p>
+          </div>
+          <Link href="/portfolio-analyzer" className="shrink-0">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+              Activate analyzer <ArrowRight className="h-4 w-4" />
+            </span>
+          </Link>
+        </CardContent>
+      </Card>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
