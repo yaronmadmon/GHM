@@ -26,6 +26,18 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
         references: true,
         documents: true,
         reviewedBy: { select: { name: true } },
+        convertedTenant: true,
+        convertedLease: {
+          select: {
+            id: true,
+            signingStatus: true,
+            signingToken: true,
+            tenantSignedAt: true,
+            landlordSignedAt: true,
+            moveInCompleted: true,
+            moveInCompletedAt: true,
+          },
+        },
       },
     });
 

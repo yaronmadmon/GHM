@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   User, Briefcase, Home, CheckCircle, XCircle, ArrowLeft,
-  Send, FileText, ShieldCheck, ClipboardCheck,
+  Send, FileText, ShieldCheck, ClipboardCheck, FileSignature, KeyRound,
 } from "lucide-react";
 import Link from "next/link";
 import { DocumentsSection } from "@/components/applications/DocumentsSection";
@@ -46,7 +46,18 @@ interface Application {
   backgroundCheckStatus: string | null;
   backgroundCheckNotes: string | null;
   backgroundCheckDate: string | null;
+  convertedTenantId: string | null;
   convertedLeaseId: string | null;
+  convertedTenant: { id: string; firstName: string; lastName: string; email: string | null } | null;
+  convertedLease: {
+    id: string;
+    signingStatus: string;
+    signingToken: string | null;
+    tenantSignedAt: string | null;
+    landlordSignedAt: string | null;
+    moveInCompleted: boolean;
+    moveInCompletedAt: string | null;
+  } | null;
   property: { id: string; name: string } | null;
   unit: { unitNumber: string } | null;
   createdAt: string;
@@ -87,6 +98,7 @@ export default function ApplicationDetailPage() {
   const [denying, setDenying] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [sendingLease, setSendingLease] = useState(false);
+  const [countersigning, setCountersigning] = useState(false);
   const [signUrl, setSignUrl] = useState("");
   const [guardErrors, setGuardErrors] = useState<string[]>([]);
   const [docs, setDocs] = useState<AppDoc[]>([]);
@@ -97,6 +109,9 @@ export default function ApplicationDetailPage() {
       setApp(data);
       setDocs(data.documents ?? []);
       setScreeningStatus(data.backgroundCheckStatus ?? null);
+      if (data.convertedLease?.signingToken) {
+        setSignUrl(`${window.location.origin}/lease-sign/${data.convertedLease.signingToken}`);
+      }
     }).catch(() => {});
   }, [id]);
 
@@ -152,8 +167,15 @@ export default function ApplicationDetailPage() {
       return;
     }
     const data = await res.json();
-    toast.success("Applicant converted to tenant! Portal invite sent.");
-    setApp((a) => a ? { ...a, status: "approved", convertedLeaseId: data.lease.id } : null);
+    toast.success("Approved. Tenant and draft lease created.");
+    setApp((a) => a ? {
+      ...a,
+      status: "approved",
+      convertedTenantId: data.tenant.id,
+      convertedLeaseId: data.lease.id,
+      convertedTenant: data.tenant,
+      convertedLease: data.lease,
+    } : null);
     setConvertOpen(false);
   }
 
@@ -165,7 +187,36 @@ export default function ApplicationDetailPage() {
     if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Failed to send"); return; }
     const d = await res.json();
     setSignUrl(d.signUrl ?? "");
+    setApp((a) => a?.convertedLease ? {
+      ...a,
+      convertedLease: {
+        ...a.convertedLease,
+        signingStatus: d.signingStatus ?? "sent",
+        signingToken: d.signingToken ?? a.convertedLease.signingToken,
+      },
+    } : a);
     toast.success("Lease sent to tenant for signing!");
+  }
+
+  async function handleCountersign() {
+    if (!app?.convertedLeaseId) return;
+    setCountersigning(true);
+    const res = await fetch(`/api/leases/${app.convertedLeaseId}/countersign`, { method: "POST" });
+    setCountersigning(false);
+    if (!res.ok) {
+      const d = await res.json();
+      toast.error(d.error ?? "Failed to countersign");
+      return;
+    }
+    toast.success("Lease countersigned. Tenant is fully active.");
+    setApp((a) => a?.convertedLease ? {
+      ...a,
+      convertedLease: {
+        ...a.convertedLease,
+        signingStatus: "fully_signed",
+        landlordSignedAt: new Date().toISOString(),
+      },
+    } : a);
   }
 
   if (!app) return <div className="p-6 text-muted-foreground">Loading...</div>;
@@ -174,6 +225,8 @@ export default function ApplicationDetailPage() {
   const canAdvance = !!NEXT_STATUS[app.status];
   const isDenied = app.status === "denied";
   const isApproved = app.status === "approved";
+  const leaseStatus = app.convertedLease?.signingStatus ?? null;
+  const hasConvertedLease = Boolean(app.convertedLeaseId);
 
   // Approval readiness check (mirror server guards)
   const hasEmail = !!app.email;
@@ -198,7 +251,7 @@ export default function ApplicationDetailPage() {
       </div>
 
       {/* Workflow progress bar */}
-      {!isDenied && (
+      {!isDenied && !isApproved && (
         <div className="mb-5 p-3 bg-muted/30 rounded-xl border">
           <div className="flex items-center gap-1 md:gap-2">
             {STATUS_STEPS.map((step, i) => (
@@ -217,6 +270,35 @@ export default function ApplicationDetailPage() {
           </div>
         </div>
       )}
+
+      <Card className="mb-5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ClipboardCheck className="h-4 w-4" />
+            Application to tenant workflow
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              { label: "Review application", done: ["under_review", "screening", "approved", "denied"].includes(app.status), detail: app.status === "pending" ? "Submitted" : app.status.replace("_", " ") },
+              { label: "Approve or deny", done: isApproved || isDenied, detail: isDenied ? "Denied" : isApproved ? "Approved" : "Decision pending" },
+              { label: "Create tenant + lease", done: hasConvertedLease, detail: hasConvertedLease ? "Draft lease ready" : "Not created" },
+              { label: "Send lease", done: ["sent", "tenant_signed", "fully_signed"].includes(leaseStatus ?? ""), detail: leaseStatus === "draft" ? "Draft" : leaseStatus ?? "Waiting" },
+              { label: "Tenant signs", done: ["tenant_signed", "fully_signed"].includes(leaseStatus ?? ""), detail: app.convertedLease?.tenantSignedAt ? new Date(app.convertedLease.tenantSignedAt).toLocaleDateString() : "Awaiting tenant" },
+              { label: "Countersign", done: leaseStatus === "fully_signed", detail: app.convertedLease?.landlordSignedAt ? "Fully signed" : "Awaiting landlord" },
+            ].map((step) => (
+              <div key={step.label} className="flex gap-3 rounded-lg border p-3 text-sm">
+                {step.done ? <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <div className="mt-0.5 h-4 w-4 shrink-0 rounded-full border" />}
+                <div>
+                  <p className="font-medium">{step.label}</p>
+                  <p className="text-xs text-muted-foreground">{step.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Action bar */}
       {!isDenied && !isApproved && (
@@ -245,17 +327,27 @@ export default function ApplicationDetailPage() {
 
       {isApproved && app.convertedLeaseId && (
         <div className="flex gap-2 flex-wrap mb-5">
-          <Button onClick={handleSendLease} disabled={sendingLease} size="sm" className="gap-2">
-            <Send className="h-4 w-4" />{sendingLease ? "Sending..." : "Send Lease for Signature"}
-          </Button>
+          {leaseStatus === "draft" && (
+            <Button onClick={handleSendLease} disabled={sendingLease} size="sm" className="gap-2">
+              <Send className="h-4 w-4" />{sendingLease ? "Sending..." : "Send Lease for Signature"}
+            </Button>
+          )}
+          {leaseStatus === "tenant_signed" && (
+            <Button onClick={handleCountersign} disabled={countersigning} size="sm" className="gap-2">
+              <FileSignature className="h-4 w-4" />{countersigning ? "Countersigning..." : "Countersign Lease"}
+            </Button>
+          )}
           <Link href={`/leases/${app.convertedLeaseId}`}><Button variant="outline" size="sm">View Lease</Button></Link>
+          {app.convertedTenantId && (
+            <Link href={`/tenants/${app.convertedTenantId}`}><Button variant="outline" size="sm">View Tenant</Button></Link>
+          )}
         </div>
       )}
 
       {signUrl && (
         <div className="mb-5 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm">
-          <p className="font-medium text-blue-800 mb-1">Lease signing link (send to tenant):</p>
-          <p className="text-blue-700 break-all font-mono text-xs">{signUrl}</p>
+          <p className="font-medium text-blue-800 mb-1 flex items-center gap-2"><KeyRound className="h-4 w-4" />Lease signing link</p>
+          <a href={signUrl} target="_blank" rel="noreferrer" className="text-blue-700 break-all font-mono text-xs hover:underline">{signUrl}</a>
         </div>
       )}
 

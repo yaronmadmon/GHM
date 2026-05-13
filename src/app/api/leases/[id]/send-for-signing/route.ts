@@ -41,7 +41,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       return Response.json({ error: message }, { status: 502 });
     }
 
-    return Response.json({ success: true, signUrl });
+    return Response.json({ success: true, signUrl, signingToken: token, signingStatus: "sent" });
   } catch (err) {
     console.error("Send lease for signing failed:", err);
     return Response.json({ error: "Internal server error" }, { status: 500 });
