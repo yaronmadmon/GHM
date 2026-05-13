@@ -1,51 +1,107 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Briefcase,
+  CheckCircle,
+  ClipboardCheck,
+  DollarSign,
+  FileSignature,
+  FileText,
+  Home,
+  KeyRound,
+  Send,
+  ShieldCheck,
+  User,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "sonner";
-import {
-  User, Briefcase, Home, CheckCircle, XCircle, ArrowLeft,
-  Send, FileText, ShieldCheck, ClipboardCheck, FileSignature, KeyRound,
-} from "lucide-react";
-import Link from "next/link";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { DocumentsSection } from "@/components/applications/DocumentsSection";
 import { ScreeningSection } from "@/components/applications/ScreeningSection";
-import { WorkflowVerificationPanel } from "@/components/applications/WorkflowVerificationPanel";
 import { formatCurrency } from "@/lib/utils";
 
-interface AppDoc { id: string; docType: string; }
-interface Reference { id: string; }
+interface AppDoc {
+  id: string;
+  name?: string;
+  url?: string;
+  docType: string;
+  createdAt?: string;
+}
+
+interface Reference {
+  id: string;
+  type: string;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+interface Occupant {
+  name?: string;
+  relationship?: string;
+  dateOfBirth?: string;
+}
 
 interface Application {
   id: string;
   status: string;
   firstName: string;
+  middleName: string | null;
   lastName: string;
   email: string | null;
   phone: string | null;
   dateOfBirth: string | null;
   currentAddress: string | null;
   employerName: string | null;
-  jobTitle: string | null;
-  monthlyIncome: number | null;
   employerPhone: string | null;
+  jobTitle: string | null;
+  employmentStartDate: string | null;
+  monthlyIncome: number | string | null;
+  selfEmployed: boolean;
+  additionalIncomeSource: string | null;
+  additionalIncomeMonthly: number | string | null;
   currentLandlordName: string | null;
   currentLandlordPhone: string | null;
+  currentAddressStartDate: string | null;
+  previousAddress: string | null;
+  previousLandlordName: string | null;
+  previousLandlordPhone: string | null;
   reasonForMoving: string | null;
+  everEvicted: boolean | null;
+  evictionExplanation: string | null;
+  hasCriminalHistory: boolean | null;
+  criminalHistoryExplanation: string | null;
+  hasBankruptcy: boolean | null;
+  bankruptcyExplanation: string | null;
   hasPets: boolean;
   petsDescription: string | null;
   hasVehicles: boolean;
   vehiclesDescription: string | null;
+  desiredMoveInDate: string | null;
+  intendedLeaseTerm: string | null;
+  numberOfOccupants: number | null;
+  additionalOccupants: unknown;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  emergencyContactRelation: string | null;
+  additionalNotes: string | null;
   backgroundCheckStatus: string | null;
   backgroundCheckNotes: string | null;
   backgroundCheckDate: string | null;
+  decisionNotes: string | null;
   convertedTenantId: string | null;
   convertedLeaseId: string | null;
   convertedTenant: { id: string; firstName: string; lastName: string; email: string | null } | null;
@@ -58,21 +114,14 @@ interface Application {
     moveInCompleted: boolean;
     moveInCompletedAt: string | null;
   } | null;
-  property: { id: string; name: string } | null;
+  property: { id: string; name: string; address?: string | null } | null;
   unit: { unitNumber: string } | null;
   createdAt: string;
+  signedAt: string | null;
   reviewedAt: string | null;
   documents: AppDoc[];
   references: Reference[];
 }
-
-const STATUS_STEPS = [
-  { value: "pending", label: "Submitted" },
-  { value: "documents_requested", label: "Docs Requested" },
-  { value: "under_review", label: "Under Review" },
-  { value: "screening", label: "Screening" },
-  { value: "approved", label: "Approved" },
-];
 
 const STATUS_COLOR: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800 border-amber-200",
@@ -83,520 +132,733 @@ const STATUS_COLOR: Record<string, string> = {
   denied: "bg-red-100 text-red-800 border-red-200",
 };
 
-const NEXT_STATUS: Record<string, { status: string; label: string }> = {
-  pending: { status: "documents_requested", label: "Request Documents" },
-  documents_requested: { status: "under_review", label: "Mark Under Review" },
-  under_review: { status: "screening", label: "Start Screening" },
+const SCREENING_LABEL: Record<string, string> = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  passed: "Passed",
+  conditional: "Conditional",
+  failed: "Failed",
 };
 
-const STAGE_HELP: Record<string, { title: string; body: string }> = {
-  pending: {
-    title: "New application submitted",
-    body: "Review the applicant profile and decide whether more documents are needed.",
-  },
-  documents_requested: {
-    title: "Documents stage",
-    body: "Check the uploaded files. When the file looks complete, move it to underwriting review.",
-  },
-  under_review: {
-    title: "Underwriting review",
-    body: "Review income, rental history, and documents. Start screening when you are ready to record the background check.",
-  },
-  screening: {
-    title: "Decision stage",
-    body: "Record the screening result. If requirements are complete, approve and create the tenant lease. Otherwise deny the application.",
-  },
-  approved: {
-    title: "Approved application",
-    body: "The applicant has been converted. Continue with lease signing and countersignature.",
-  },
-  denied: {
-    title: "Application denied",
-    body: "This application is closed. No conversion or lease signing action is available.",
-  },
-};
+function moneyValue(value: number | string | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function shortDate(value: string | null | undefined) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return date.toLocaleDateString();
+}
+
+function dateInput(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function yesNo(value: boolean | null | undefined) {
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  return "--";
+}
+
+function parseOccupants(value: unknown): Occupant[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Occupant => !!item && typeof item === "object");
+}
+
+function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="truncate text-sm font-medium">{value === null || value === undefined || value === "" ? "--" : value}</p>
+    </div>
+  );
+}
+
+function LongField({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm">{value || "--"}</p>
+    </div>
+  );
+}
+
+function getAdvisorRecommendation({
+  screeningStatus,
+  incomeRatio,
+  hasDocs,
+  hasEmail,
+}: {
+  screeningStatus: string | null;
+  incomeRatio: number | null;
+  hasDocs: boolean;
+  hasEmail: boolean;
+}) {
+  if (screeningStatus === "failed") {
+    return {
+      label: "Not recommended",
+      tone: "text-red-700 bg-red-50 border-red-200",
+      detail: "Screening is failed. Deny or resolve the issue before moving forward.",
+    };
+  }
+  if (screeningStatus === "passed" && hasDocs && hasEmail && incomeRatio !== null && incomeRatio >= 3) {
+    return {
+      label: "Recommended",
+      tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
+      detail: "The file has required basics, screening passed, and income is at least 3 times rent.",
+    };
+  }
+  if ((screeningStatus === "passed" || screeningStatus === "conditional") && hasDocs && hasEmail) {
+    return {
+      label: "Conditional approval",
+      tone: "text-amber-700 bg-amber-50 border-amber-200",
+      detail: "The applicant can be approved, but review the notes, rent fit, and documents carefully.",
+    };
+  }
+  return {
+    label: "Needs review",
+    tone: "text-blue-700 bg-blue-50 border-blue-200",
+    detail: "Complete documents, screening, and lease terms before approving.",
+  };
+}
 
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [app, setApp] = useState<Application | null>(null);
+  const [docs, setDocs] = useState<AppDoc[]>([]);
   const [convertOpen, setConvertOpen] = useState(false);
+  const [screeningOpen, setScreeningOpen] = useState(false);
   const [convertForm, setConvertForm] = useState({ startDate: "", endDate: "", rentAmount: "", depositAmount: "" });
+  const [decisionNotes, setDecisionNotes] = useState("");
+  const [sendLeaseAfterApproval, setSendLeaseAfterApproval] = useState(true);
   const [converting, setConverting] = useState(false);
   const [denying, setDenying] = useState(false);
-  const [advancing, setAdvancing] = useState(false);
+  const [requestingInfo, setRequestingInfo] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
   const [sendingLease, setSendingLease] = useState(false);
   const [countersigning, setCountersigning] = useState(false);
   const [signUrl, setSignUrl] = useState("");
   const [guardErrors, setGuardErrors] = useState<string[]>([]);
-  const [docs, setDocs] = useState<AppDoc[]>([]);
-  const [screeningStatus, setScreeningStatus] = useState<string | null>(null);
 
-  const loadApp = useCallback(() => {
-    fetch(`/api/applications/${id}`).then((r) => r.json()).then((data) => {
+  const loadApp = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/applications/${id}`);
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
       setApp(data);
       setDocs(data.documents ?? []);
-      setScreeningStatus(data.backgroundCheckStatus ?? null);
+      setDecisionNotes(data.decisionNotes ?? "");
+      setConvertForm((current) => ({
+        ...current,
+        startDate: current.startDate || dateInput(data.desiredMoveInDate),
+      }));
       if (data.convertedLease?.signingToken) {
         setSignUrl(`${window.location.origin}/lease-sign/${data.convertedLease.signingToken}`);
       }
-    }).catch(() => {});
+    } catch {
+      toast.error("Could not load application");
+    }
   }, [id]);
 
-  useEffect(() => { loadApp(); }, [loadApp]);
+  useEffect(() => {
+    loadApp();
+  }, [loadApp]);
 
-  async function advanceStatus() {
-    if (!app) return;
-    const next = NEXT_STATUS[app.status];
-    if (!next) return;
-    setAdvancing(true);
+  const occupants = useMemo(() => parseOccupants(app?.additionalOccupants), [app?.additionalOccupants]);
+  const primaryIncome = moneyValue(app?.monthlyIncome);
+  const additionalIncome = moneyValue(app?.additionalIncomeMonthly);
+  const totalIncome = primaryIncome + additionalIncome;
+  const proposedRent = moneyValue(convertForm.rentAmount);
+  const incomeRatio = proposedRent > 0 ? totalIncome / proposedRent : null;
+  const hasEmail = !!app?.email;
+  const hasDocs = docs.length > 0;
+  const screeningStatus = app?.backgroundCheckStatus ?? "not_started";
+  const screeningOk = screeningStatus === "passed" || screeningStatus === "conditional";
+  const isApproved = app?.status === "approved";
+  const isDenied = app?.status === "denied";
+  const leaseStatus = app?.convertedLease?.signingStatus ?? null;
+  const recommendation = getAdvisorRecommendation({ screeningStatus, incomeRatio, hasDocs, hasEmail });
+  const approvalBlockers = [
+    !hasEmail ? "Applicant email is missing." : null,
+    !hasDocs ? "At least one supporting document is required." : null,
+    !screeningOk ? "Credit/screening result must be passed or conditional." : null,
+    !convertForm.startDate ? "Lease start date is required." : null,
+    proposedRent <= 0 ? "Monthly rent is required." : null,
+  ].filter((item): item is string => Boolean(item));
+  const canApprove = approvalBlockers.length === 0 && !!app && !isApproved && !isDenied;
+
+  async function updateApplication(body: Record<string, unknown>) {
+    const res = await fetch(`/api/applications/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "Update failed");
+    return data;
+  }
+
+  async function handleRequestMoreInfo() {
+    setRequestingInfo(true);
     try {
-      const res = await fetch(`/api/applications/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: next.status }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error ?? "Failed to update status");
-        return;
-      }
-      toast.success(`Moved to ${next.label}`);
-      setApp((a) => a ? { ...a, status: next.status } : null);
-      loadApp();
-    } catch {
-      toast.error("Could not update the application. Try again.");
+      await updateApplication({ status: "documents_requested", decisionNotes });
+      toast.success("Application marked for more information");
+      await loadApp();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update application");
     } finally {
-      setAdvancing(false);
+      setRequestingInfo(false);
     }
   }
+
+  async function handleSaveNotes() {
+    setSavingNotes(true);
+    try {
+      await updateApplication({ decisionNotes });
+      toast.success("Decision notes saved");
+      await loadApp();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save notes");
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
   async function handleDeny() {
     setDenying(true);
     try {
-      const res = await fetch(`/api/applications/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "denied" }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error ?? "Failed to deny application");
-        return;
-      }
+      await updateApplication({ status: "denied", decisionNotes });
       toast.success("Application denied");
-      setApp((a) => a ? { ...a, status: "denied" } : null);
-      loadApp();
-    } catch {
-      toast.error("Could not deny the application. Try again.");
+      await loadApp();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to deny application");
     } finally {
       setDenying(false);
     }
   }
+
+  async function sendLeaseForId(leaseId: string) {
+    setSendingLease(true);
+    try {
+      const res = await fetch(`/api/leases/${leaseId}/send-for-signing`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to send lease");
+      setSignUrl(data.signUrl ?? "");
+      toast.success("Lease sent to tenant for signing");
+      await loadApp();
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not send the lease");
+      return false;
+    } finally {
+      setSendingLease(false);
+    }
+  }
+
   async function handleConvert() {
-    if (!convertForm.startDate || !convertForm.rentAmount) { toast.error("Start date and rent are required"); return; }
+    if (!canApprove) {
+      setGuardErrors(approvalBlockers);
+      toast.error("Requirements are not complete");
+      return;
+    }
     setConverting(true);
     setGuardErrors([]);
     try {
+      await updateApplication({ status: "screening", decisionNotes });
       const res = await fetch(`/api/applications/${id}/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           startDate: convertForm.startDate,
           endDate: convertForm.endDate || undefined,
-          rentAmount: parseFloat(convertForm.rentAmount),
-          depositAmount: parseFloat(convertForm.depositAmount || "0"),
+          rentAmount: proposedRent,
+          depositAmount: moneyValue(convertForm.depositAmount),
         }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data.guards) { setGuardErrors(data.guards); toast.error("Requirements not met. See checklist."); }
-        else toast.error(data.error ?? "Failed to convert");
-        return;
+        if (Array.isArray(data.guards)) setGuardErrors(data.guards);
+        throw new Error(data.error ?? "Failed to approve application");
       }
-      const data = await res.json();
-      toast.success("Approved. Tenant and draft lease created.");
-      setApp((a) => a ? {
-        ...a,
-        status: "approved",
-        convertedTenantId: data.tenant.id,
-        convertedLeaseId: data.lease.id,
-        convertedTenant: data.tenant,
-        convertedLease: data.lease,
-      } : null);
+      toast.success("Approved. Tenant and lease created.");
       setConvertOpen(false);
-      loadApp();
-    } catch {
-      toast.error("Could not approve and convert. Try again.");
+      if (sendLeaseAfterApproval && data.lease?.id) {
+        await sendLeaseForId(data.lease.id);
+      } else {
+        await loadApp();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not approve application");
     } finally {
       setConverting(false);
     }
   }
-  async function handleSendLease() {
-    if (!app?.convertedLeaseId) return;
-    setSendingLease(true);
-    try {
-      const res = await fetch(`/api/leases/${app.convertedLeaseId}/send-for-signing`, { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error ?? "Failed to send lease");
-        return;
-      }
-      const data = await res.json();
-      setSignUrl(data.signUrl ?? "");
-      setApp((a) => a?.convertedLease ? {
-        ...a,
-        convertedLease: {
-          ...a.convertedLease,
-          signingStatus: data.signingStatus ?? "sent",
-          signingToken: data.signingToken ?? a.convertedLease.signingToken,
-        },
-      } : a);
-      toast.success("Lease sent to tenant for signing.");
-      loadApp();
-    } catch {
-      toast.error("Could not send the lease. Try again.");
-    } finally {
-      setSendingLease(false);
-    }
-  }
+
   async function handleCountersign() {
     if (!app?.convertedLeaseId) return;
     setCountersigning(true);
     try {
       const res = await fetch(`/api/leases/${app.convertedLeaseId}/countersign`, { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.error ?? "Failed to countersign");
-        return;
-      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to countersign");
       toast.success("Lease countersigned. Tenant is fully active.");
-      setApp((a) => a?.convertedLease ? {
-        ...a,
-        convertedLease: {
-          ...a.convertedLease,
-          signingStatus: "fully_signed",
-          landlordSignedAt: new Date().toISOString(),
-        },
-      } : a);
-      loadApp();
-    } catch {
-      toast.error("Could not countersign the lease. Try again.");
+      await loadApp();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not countersign the lease");
     } finally {
       setCountersigning(false);
     }
   }
+
   if (!app) return <div className="p-6 text-muted-foreground">Loading...</div>;
 
-  const currentStepIndex = STATUS_STEPS.findIndex((s) => s.value === app.status);
-  const canAdvance = !!NEXT_STATUS[app.status];
-  const isDenied = app.status === "denied";
-  const isApproved = app.status === "approved";
-  const leaseStatus = app.convertedLease?.signingStatus ?? null;
-  const hasConvertedLease = Boolean(app.convertedLeaseId);
-
-  // Approval readiness check (mirror server guards)
-  const hasEmail = !!app.email;
-  const screeningOk = screeningStatus === "passed" || screeningStatus === "conditional";
-  const hasDocs = docs.length > 0;
-  const canApprove = hasEmail && screeningOk && hasDocs;
-  const stageHelp = STAGE_HELP[app.status] ?? STAGE_HELP.pending;
-  const next = NEXT_STATUS[app.status];
-  const approvalBlockers = [
-    !hasEmail ? "Applicant email is missing" : null,
-    !hasDocs ? "At least one document is required" : null,
-    !screeningOk ? "Screening must be passed or conditional" : null,
-  ].filter((item): item is string => Boolean(item));
-
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
-      <div className="flex items-center gap-3 mb-5">
-        <Link href="/applications"><Button variant="ghost" size="sm" className="gap-1"><ArrowLeft className="h-4 w-4" />Back</Button></Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-xl md:text-2xl font-semibold">{app.firstName} {app.lastName}</h1>
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <Link href="/applications">
+          <Button variant="ghost" size="sm" className="gap-1">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+        </Link>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="truncate text-xl font-semibold md:text-2xl">
+              {app.firstName} {app.middleName ? `${app.middleName} ` : ""}{app.lastName}
+            </h1>
+            <Badge className={`border capitalize ${STATUS_COLOR[app.status] ?? "bg-muted"}`}>
+              {app.status.replace("_", " ")}
+            </Badge>
+          </div>
           <p className="text-sm text-muted-foreground">
             {app.property ? (
-              <Link href={`/properties/${app.property.id}`} className="hover:text-primary transition-colors">{app.property.name}</Link>
-            ) : null}
-            {app.unit ? ` · Unit ${app.unit.unitNumber}` : ""}
+              <Link href={`/properties/${app.property.id}`} className="hover:text-primary">
+                {app.property.name}
+              </Link>
+            ) : "No property"}
+            {app.unit ? ` - Unit ${app.unit.unitNumber}` : ""}
           </p>
         </div>
-        <Badge className={`border shrink-0 capitalize ${STATUS_COLOR[app.status] ?? "bg-muted"}`}>{app.status.replace("_", " ")}</Badge>
+        {app.convertedTenantId && (
+          <Link href={`/tenants/${app.convertedTenantId}`}>
+            <Button variant="outline" size="sm">View tenant</Button>
+          </Link>
+        )}
+        {app.convertedLeaseId && (
+          <Link href={`/leases/${app.convertedLeaseId}`}>
+            <Button variant="outline" size="sm">View lease</Button>
+          </Link>
+        )}
       </div>
 
-      {/* Workflow progress bar */}
-      {!isDenied && !isApproved && (
-        <div className="mb-5 p-3 bg-muted/30 rounded-xl border">
-          <div className="flex items-center gap-1 md:gap-2">
-            {STATUS_STEPS.map((step, i) => (
-              <div key={step.value} className="flex items-center gap-1 md:gap-2 flex-1 min-w-0">
-                <div className={`flex items-center gap-1 flex-1 min-w-0 ${i <= currentStepIndex ? "text-primary" : "text-muted-foreground"}`}>
-                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i < currentStepIndex ? "bg-emerald-500 text-white" : i === currentStepIndex ? "bg-primary text-white" : "bg-muted-foreground/20 text-muted-foreground"}`}>
-                    {i < currentStepIndex ? "✓" : i + 1}
-                  </div>
-                  <span className="text-xs font-medium truncate hidden sm:block">{step.label}</span>
-                </div>
-                {i < STATUS_STEPS.length - 1 && (
-                  <div className={`h-0.5 flex-1 rounded shrink-0 ${i < currentStepIndex ? "bg-emerald-400" : "bg-muted-foreground/20"}`} />
-                )}
-              </div>
-            ))}
+      <div className="mb-5 rounded-xl border bg-primary/5 p-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Submitted</p>
+            <p className="font-medium">{shortDate(app.createdAt)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Desired move-in</p>
+            <p className="font-medium">{shortDate(app.desiredMoveInDate)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Household income</p>
+            <p className="font-medium">{totalIncome > 0 ? formatCurrency(totalIncome) : "--"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Advisor recommendation</p>
+            <p className="font-medium">{recommendation.label}</p>
           </div>
         </div>
-      )}
-
-      <Card className="mb-5">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <ClipboardCheck className="h-4 w-4" />
-            Application to tenant workflow
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
-            {[
-              { label: "Review application", done: ["under_review", "screening", "approved", "denied"].includes(app.status), detail: app.status === "pending" ? "Submitted" : app.status.replace("_", " ") },
-              { label: "Approve or deny", done: isApproved || isDenied, detail: isDenied ? "Denied" : isApproved ? "Approved" : "Decision pending" },
-              { label: "Create tenant + lease", done: hasConvertedLease, detail: hasConvertedLease ? "Draft lease ready" : "Not created" },
-              { label: "Send lease", done: ["sent", "tenant_signed", "fully_signed"].includes(leaseStatus ?? ""), detail: leaseStatus === "draft" ? "Draft" : leaseStatus ?? "Waiting" },
-              { label: "Tenant signs", done: ["tenant_signed", "fully_signed"].includes(leaseStatus ?? ""), detail: app.convertedLease?.tenantSignedAt ? new Date(app.convertedLease.tenantSignedAt).toLocaleDateString() : "Awaiting tenant" },
-              { label: "Countersign", done: leaseStatus === "fully_signed", detail: app.convertedLease?.landlordSignedAt ? "Fully signed" : "Awaiting landlord" },
-            ].map((step) => (
-              <div key={step.label} className="flex gap-3 rounded-lg border p-3 text-sm">
-                {step.done ? <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <div className="mt-0.5 h-4 w-4 shrink-0 rounded-full border" />}
-                <div>
-                  <p className="font-medium">{step.label}</p>
-                  <p className="text-xs text-muted-foreground">{step.detail}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {!isDenied && !isApproved && (
-        <Card className="mb-5 border-primary/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Current stage: {stageHelp.title}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">{stageHelp.body}</p>
-            {approvalBlockers.length > 0 && app.status === "screening" && (
-              <div className="rounded-lg border bg-muted/20 p-3 text-sm">
-                <p className="mb-1 font-medium">Before approving:</p>
-                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-                  {approvalBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
-                </ul>
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {canAdvance && next && (
-                <Button onClick={advanceStatus} disabled={advancing} size="sm" className="gap-2">
-                  {advancing ? "Updating..." : next.label}
-                </Button>
-              )}
-              {app.status === "screening" && (
-                <Button
-                  onClick={() => { setGuardErrors([]); setConvertOpen(true); }}
-                  disabled={!canApprove || converting}
-                  title={!canApprove ? "Requires email, documents, and passed or conditional screening" : ""}
-                  className="gap-2"
-                  size="sm"
-                >
-                  <CheckCircle className="h-4 w-4" />Approve and Create Tenant + Lease
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={handleDeny} disabled={denying} className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/10">
-                <XCircle className="h-4 w-4" />{denying ? "Denying..." : "Deny Application"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      {isApproved && app.convertedLeaseId && (
-        <div className="flex gap-2 flex-wrap mb-5">
-          {leaseStatus === "draft" && (
-            <Button onClick={handleSendLease} disabled={sendingLease} size="sm" className="gap-2">
-              <Send className="h-4 w-4" />{sendingLease ? "Sending..." : "Send Lease for Signature"}
-            </Button>
-          )}
-          {leaseStatus === "tenant_signed" && (
-            <Button onClick={handleCountersign} disabled={countersigning} size="sm" className="gap-2">
-              <FileSignature className="h-4 w-4" />{countersigning ? "Countersigning..." : "Countersign Lease"}
-            </Button>
-          )}
-          <Link href={`/leases/${app.convertedLeaseId}`}><Button variant="outline" size="sm">View Lease</Button></Link>
-          {app.convertedTenantId && (
-            <Link href={`/tenants/${app.convertedTenantId}`}><Button variant="outline" size="sm">View Tenant</Button></Link>
-          )}
-        </div>
-      )}
+      </div>
 
       {signUrl && (
-        <div className="mb-5 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm">
-          <p className="font-medium text-blue-800 mb-1 flex items-center gap-2"><KeyRound className="h-4 w-4" />Lease signing link</p>
-          <a href={signUrl} target="_blank" rel="noreferrer" className="text-blue-700 break-all font-mono text-xs hover:underline">{signUrl}</a>
-        </div>
-      )}
-
-      {/* Approval readiness (when in screening stage) */}
-      {app.status === "screening" && !isApproved && (
-        <div className="mb-5 p-3 rounded-lg border bg-muted/20">
-          <p className="text-sm font-medium mb-2">Approval Requirements</p>
-          <div className="space-y-1 text-sm">
-            {[
-              { ok: hasEmail, label: "Applicant has email address" },
-              { ok: hasDocs, label: "At least one document on file" },
-              { ok: screeningOk, label: "Screening passed or conditional" },
-            ].map(({ ok, label }) => (
-              <div key={label} className="flex items-center gap-2">
-                {ok ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-red-400" />}
-                <span className={ok ? "" : "text-muted-foreground"}>{label}</span>
-              </div>
-            ))}
-          </div>
+        <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
+          <p className="mb-1 flex items-center gap-2 font-medium text-blue-800">
+            <KeyRound className="h-4 w-4" />
+            Lease signing link
+          </p>
+          <a href={signUrl} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-blue-700 hover:underline">
+            {signUrl}
+          </a>
         </div>
       )}
 
       {guardErrors.length > 0 && (
-        <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 space-y-1">
-          {guardErrors.map((e) => <p key={e}>• {e}</p>)}
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {guardErrors.map((error) => <p key={error}>{error}</p>)}
         </div>
       )}
 
-      {/* Main content + verification panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 space-y-5">
-          <Tabs defaultValue="profile">
-            <TabsList className="w-full">
-              <TabsTrigger value="profile" className="flex-1 gap-1.5"><User className="h-3.5 w-3.5" />Profile</TabsTrigger>
-              <TabsTrigger value="documents" className="flex-1 gap-1.5"><FileText className="h-3.5 w-3.5" />Documents</TabsTrigger>
-              <TabsTrigger value="screening" className="flex-1 gap-1.5"><ShieldCheck className="h-3.5 w-3.5" />Screening</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="profile" className="mt-4 space-y-4">
-              <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><User className="h-4 w-4" />Personal Info</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-muted-foreground text-xs">Email</p><p>{app.email ?? "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Phone</p><p>{app.phone ?? "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Date of Birth</p><p>{app.dateOfBirth ? new Date(app.dateOfBirth).toLocaleDateString() : "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Current Address</p><p>{app.currentAddress ?? "—"}</p></div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Briefcase className="h-4 w-4" />Employment</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-muted-foreground text-xs">Employer</p><p>{app.employerName ?? "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Job Title</p><p>{app.jobTitle ?? "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Monthly Income</p><p>{app.monthlyIncome ? formatCurrency(Number(app.monthlyIncome)) : "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Employer Phone</p><p>{app.employerPhone ?? "—"}</p></div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Home className="h-4 w-4" />Rental History</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-muted-foreground text-xs">Current Landlord</p><p>{app.currentLandlordName ?? "—"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Landlord Phone</p><p>{app.currentLandlordPhone ?? "—"}</p></div>
-                  <div className="col-span-2"><p className="text-muted-foreground text-xs">Reason for Moving</p><p>{app.reasonForMoving ?? "—"}</p></div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm">Pets & Vehicles</CardTitle></CardHeader>
-                <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-muted-foreground text-xs">Pets</p><p>{app.hasPets ? (app.petsDescription || "Yes") : "No"}</p></div>
-                  <div><p className="text-muted-foreground text-xs">Vehicles</p><p>{app.hasVehicles ? (app.vehiclesDescription || "Yes") : "No"}</p></div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="documents" className="mt-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4" />Supporting Documents</CardTitle>
-                  <p className="text-xs text-muted-foreground">Add links to documents shared via Google Drive, Dropbox, or any URL.</p>
-                </CardHeader>
-                <CardContent>
-                  <DocumentsSection
-                    applicationId={id}
-                    onDocsChange={(updated) => {
-                      setDocs(updated);
-                      setApp((a) => a ? { ...a, documents: updated } : null);
-                    }}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="screening" className="mt-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Background Screening</CardTitle>
-                  <p className="text-xs text-muted-foreground">Record background check results. Approval requires passed or conditional status.</p>
-                </CardHeader>
-                <CardContent>
-                  <ScreeningSection
-                    applicationId={id}
-                    initialStatus={app.backgroundCheckStatus}
-                    initialNotes={app.backgroundCheckNotes}
-                    initialDate={app.backgroundCheckDate}
-                    onChange={(s) => setScreeningStatus(s)}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* Workflow Verification Panel */}
-        <div>
-          <Card className="sticky top-6">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <ClipboardCheck className="h-4 w-4" />Workflow Verification
+      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <div className="space-y-5">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <User className="h-4 w-4" />
+                Applicant
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-0">
-              <WorkflowVerificationPanel app={{ ...app, documents: docs, references: app.references }} />
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              <Field label="Email" value={app.email} />
+              <Field label="Phone" value={app.phone} />
+              <Field label="Date of birth" value={shortDate(app.dateOfBirth)} />
+              <Field label="Current address" value={app.currentAddress} />
+              <Field label="Emergency contact" value={app.emergencyContactName} />
+              <Field label="Emergency phone" value={app.emergencyContactPhone} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Briefcase className="h-4 w-4" />
+                Income And Employment
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              <Field label="Employer" value={app.employerName} />
+              <Field label="Job title" value={app.jobTitle} />
+              <Field label="Employer phone" value={app.employerPhone} />
+              <Field label="Employment start" value={shortDate(app.employmentStartDate)} />
+              <Field label="Monthly income" value={primaryIncome > 0 ? formatCurrency(primaryIncome) : "--"} />
+              <Field label="Additional income" value={additionalIncome > 0 ? formatCurrency(additionalIncome) : "--"} />
+              <Field label="Self employed" value={yesNo(app.selfEmployed)} />
+              <div className="md:col-span-2">
+                <LongField label="Additional income source" value={app.additionalIncomeSource} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Home className="h-4 w-4" />
+                Residence And Household
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="Current landlord" value={app.currentLandlordName} />
+                <Field label="Landlord phone" value={app.currentLandlordPhone} />
+                <Field label="Current address since" value={app.currentAddressStartDate} />
+                <Field label="Previous address" value={app.previousAddress} />
+                <Field label="Previous landlord" value={app.previousLandlordName} />
+                <Field label="Previous landlord phone" value={app.previousLandlordPhone} />
+                <Field label="People in household" value={app.numberOfOccupants} />
+                <Field label="Lease term requested" value={app.intendedLeaseTerm} />
+                <Field label="Signature date" value={shortDate(app.signedAt)} />
+              </div>
+              <LongField label="Reason for moving" value={app.reasonForMoving} />
+              {occupants.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs text-muted-foreground">Other occupants</p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {occupants.map((occupant, index) => (
+                      <div key={`${occupant.name}-${index}`} className="rounded-lg border p-3 text-sm">
+                        <p className="font-medium">{occupant.name || "Unnamed occupant"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {[occupant.relationship, occupant.dateOfBirth].filter(Boolean).join(" - ") || "No details"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4" />
+                Risk Disclosures
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              <LongField label="Eviction history" value={app.everEvicted ? app.evictionExplanation || "Yes" : yesNo(app.everEvicted)} />
+              <LongField label="Criminal history" value={app.hasCriminalHistory ? app.criminalHistoryExplanation || "Yes" : yesNo(app.hasCriminalHistory)} />
+              <LongField label="Bankruptcy" value={app.hasBankruptcy ? app.bankruptcyExplanation || "Yes" : yesNo(app.hasBankruptcy)} />
+              <LongField label="Applicant notes" value={app.additionalNotes} />
+              <LongField label="Pets" value={app.hasPets ? app.petsDescription || "Yes" : "No"} />
+              <LongField label="Vehicles" value={app.hasVehicles ? app.vehiclesDescription || "Yes" : "No"} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4" />
+                Documents
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DocumentsSection
+                applicationId={id}
+                onDocsChange={(updated) => {
+                  setDocs(updated);
+                  setApp((current) => current ? { ...current, documents: updated } : null);
+                }}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ClipboardCheck className="h-4 w-4" />
+                References
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {app.references.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No references submitted.</p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {app.references.map((reference) => (
+                    <div key={reference.id} className="rounded-lg border p-3 text-sm">
+                      <div className="mb-2 flex items-center gap-2">
+                        <p className="font-medium">{reference.name}</p>
+                        <Badge variant="outline" className="capitalize">{reference.type}</Badge>
+                      </div>
+                      <p className="text-muted-foreground">{reference.relationship || "--"}</p>
+                      <p>{reference.phone || "--"}</p>
+                      <p>{reference.email || "--"}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-5 lg:sticky lg:top-6 lg:self-start">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ShieldCheck className="h-4 w-4" />
+                Credit Report
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className={`rounded-lg border p-3 ${recommendation.tone}`}>
+                <p className="font-medium">{recommendation.label}</p>
+                <p className="mt-1 text-sm">{recommendation.detail}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <Field label="Status" value={SCREENING_LABEL[screeningStatus] ?? screeningStatus} />
+                <Field label="Report date" value={shortDate(app.backgroundCheckDate)} />
+              </div>
+              <LongField label="Report notes" value={app.backgroundCheckNotes} />
+              <Button variant="outline" className="w-full gap-2" onClick={() => setScreeningOpen(true)}>
+                <ShieldCheck className="h-4 w-4" />
+                {screeningStatus === "not_started" ? "Unlock / record report" : "Update report"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <DollarSign className="h-4 w-4" />
+                Lease Terms
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Start date</Label>
+                  <Input
+                    type="date"
+                    value={convertForm.startDate}
+                    onChange={(event) => setConvertForm((current) => ({ ...current, startDate: event.target.value }))}
+                    disabled={isApproved}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>End date</Label>
+                  <Input
+                    type="date"
+                    value={convertForm.endDate}
+                    onChange={(event) => setConvertForm((current) => ({ ...current, endDate: event.target.value }))}
+                    disabled={isApproved}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Monthly rent</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={convertForm.rentAmount}
+                    onChange={(event) => setConvertForm((current) => ({ ...current, rentAmount: event.target.value }))}
+                    placeholder="1500.00"
+                    disabled={isApproved}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Deposit</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={convertForm.depositAmount}
+                    onChange={(event) => setConvertForm((current) => ({ ...current, depositAmount: event.target.value }))}
+                    placeholder="1500.00"
+                    disabled={isApproved}
+                  />
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Rent to income</span>
+                  <span className="font-medium">{incomeRatio === null ? "--" : `${incomeRatio.toFixed(1)}x`}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Enter monthly rent to check whether household income supports the lease.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ClipboardCheck className="h-4 w-4" />
+                Decision
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {approvalBlockers.length > 0 && !isApproved && !isDenied && (
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                  <p className="mb-2 font-medium">Before approval</p>
+                  <div className="space-y-1.5">
+                    {approvalBlockers.map((blocker) => (
+                      <div key={blocker} className="flex gap-2 text-muted-foreground">
+                        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                        <span>{blocker}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label>Decision notes</Label>
+                <Textarea
+                  value={decisionNotes}
+                  onChange={(event) => setDecisionNotes(event.target.value)}
+                  rows={4}
+                  placeholder="Reason for approval, denial, missing information, or lease conditions..."
+                />
+              </div>
+              <Button variant="outline" className="w-full" onClick={handleSaveNotes} disabled={savingNotes}>
+                {savingNotes ? "Saving..." : "Save notes"}
+              </Button>
+
+              <Separator />
+
+              {!isApproved && !isDenied && (
+                <div className="space-y-2">
+                  <Button className="w-full gap-2" onClick={() => setConvertOpen(true)} disabled={!canApprove}>
+                    <CheckCircle className="h-4 w-4" />
+                    Approve and create lease
+                  </Button>
+                  <Button variant="outline" className="w-full" onClick={handleRequestMoreInfo} disabled={requestingInfo}>
+                    {requestingInfo ? "Updating..." : "Request more information"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 border-destructive/30 text-destructive hover:bg-destructive/10"
+                    onClick={handleDeny}
+                    disabled={denying}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    {denying ? "Denying..." : "Deny application"}
+                  </Button>
+                </div>
+              )}
+
+              {isApproved && app.convertedLeaseId && (
+                <div className="space-y-2">
+                  {leaseStatus === "draft" && (
+                    <Button className="w-full gap-2" onClick={() => sendLeaseForId(app.convertedLeaseId!)} disabled={sendingLease}>
+                      <Send className="h-4 w-4" />
+                      {sendingLease ? "Sending..." : "Send lease for signing"}
+                    </Button>
+                  )}
+                  {leaseStatus === "tenant_signed" && (
+                    <Button className="w-full gap-2" onClick={handleCountersign} disabled={countersigning}>
+                      <FileSignature className="h-4 w-4" />
+                      {countersigning ? "Countersigning..." : "Countersign lease"}
+                    </Button>
+                  )}
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                    <p className="font-medium">Lease status: {leaseStatus?.replace("_", " ") ?? "draft"}</p>
+                    <p className="text-muted-foreground">Continue from the lease or tenant page after signatures are complete.</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* Convert Dialog */}
+      <Dialog open={screeningOpen} onOpenChange={setScreeningOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Credit Report And Screening</DialogTitle>
+          </DialogHeader>
+          <ScreeningSection
+            applicationId={id}
+            initialStatus={app.backgroundCheckStatus}
+            initialNotes={app.backgroundCheckNotes}
+            initialDate={app.backgroundCheckDate}
+            onChange={async () => {
+              await loadApp();
+              setScreeningOpen(false);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={convertOpen} onOpenChange={setConvertOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Approve & Create Lease</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Approve And Create Lease</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Set lease terms. A portal invite will be emailed automatically.</p>
-            {guardErrors.length > 0 && (
-              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800 space-y-1">
-                {guardErrors.map((e) => <p key={e}>• {e}</p>)}
+            <div className={`rounded-lg border p-3 ${recommendation.tone}`}>
+              <p className="font-medium">{recommendation.label}</p>
+              <p className="text-sm">{recommendation.detail}</p>
+            </div>
+            {approvalBlockers.length > 0 && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                {approvalBlockers.map((blocker) => <p key={blocker}>{blocker}</p>)}
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Start Date *</Label>
-                <Input type="date" value={convertForm.startDate} onChange={(e) => setConvertForm((f) => ({ ...f, startDate: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>End Date (blank = month-to-month)</Label>
-                <Input type="date" value={convertForm.endDate} onChange={(e) => setConvertForm((f) => ({ ...f, endDate: e.target.value }))} />
-              </div>
+              <Field label="Lease start" value={convertForm.startDate || "--"} />
+              <Field label="Lease end" value={convertForm.endDate || "Month to month"} />
+              <Field label="Monthly rent" value={proposedRent > 0 ? formatCurrency(proposedRent) : "--"} />
+              <Field label="Deposit" value={moneyValue(convertForm.depositAmount) > 0 ? formatCurrency(moneyValue(convertForm.depositAmount)) : "--"} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Monthly Rent ($) *</Label>
-                <Input type="number" step="0.01" value={convertForm.rentAmount} onChange={(e) => setConvertForm((f) => ({ ...f, rentAmount: e.target.value }))} placeholder="1500.00" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Security Deposit ($)</Label>
-                <Input type="number" step="0.01" value={convertForm.depositAmount} onChange={(e) => setConvertForm((f) => ({ ...f, depositAmount: e.target.value }))} placeholder="1500.00" />
-              </div>
-            </div>
-            <Button onClick={handleConvert} disabled={converting} className="w-full">
-              {converting ? "Creating..." : "Approve & Create Tenant + Lease"}
+            <label className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={sendLeaseAfterApproval}
+                onChange={(event) => setSendLeaseAfterApproval(event.target.checked)}
+                className="h-4 w-4"
+              />
+              Send lease for tenant signature immediately after approval
+            </label>
+            <Button className="w-full" onClick={handleConvert} disabled={converting || !canApprove}>
+              {converting ? "Creating..." : "Approve, create tenant, and generate lease"}
             </Button>
           </div>
         </DialogContent>
