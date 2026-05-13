@@ -25,6 +25,7 @@ interface BulkItem {
   unit: { id: string; unitNumber: string; property: { id: string; name: string } };
   tenants: { id: string; firstName: string; lastName: string }[];
   rentAmount: string;
+  monthlyDue: number;
   payment: { id: string; amountPaid: string; amountDue: string; status: string } | null;
   status: string;
   balance: number;
@@ -72,7 +73,7 @@ export default function RentPage() {
       body: JSON.stringify({
         leaseId: recordDialog.leaseId,
         periodYear: year, periodMonth: month,
-        amountDue: parseFloat(String(recordDialog.rentAmount)),
+        amountDue: Number(recordDialog.monthlyDue ?? recordDialog.rentAmount),
         amountPaid: parseFloat(form.get("amount") as string),
         dueDate: new Date(year, month - 1, 1).toISOString(),
         paymentMethod: form.get("method"),
@@ -86,7 +87,7 @@ export default function RentPage() {
 
   useEffect(() => { load(); }, [year, month]);
 
-  const totalExpected = items.reduce((s, i) => s + parseFloat(String(i.rentAmount)), 0);
+  const totalExpected = items.reduce((s, i) => s + Number(i.monthlyDue ?? i.rentAmount), 0);
   const totalCollected = items.reduce((s, i) => s + (i.payment ? parseFloat(String(i.payment.amountPaid)) : 0), 0);
   const totalOutstanding = items.reduce((s, i) => s + Math.max(0, Number(i.balance ?? 0)), 0);
 
@@ -142,7 +143,7 @@ export default function RentPage() {
                     </Badge>
                     <span className="text-xs text-muted-foreground font-mono">
                       {item.payment ? `${formatCurrency(parseFloat(String(item.payment.amountPaid)))} / ` : ""}
-                      {formatCurrency(parseFloat(String(item.rentAmount)))}
+                      {formatCurrency(Number(item.monthlyDue ?? item.rentAmount))}
                     </span>
                   </div>
                   <p className={`mt-1 text-xs font-mono ${item.balance > 0 ? "text-red-600" : "text-muted-foreground"}`}>
@@ -185,7 +186,7 @@ export default function RentPage() {
                         {item.unit.property.name} · Unit {item.unit.unitNumber}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(parseFloat(String(item.rentAmount)))}</td>
+                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(Number(item.monthlyDue ?? item.rentAmount))}</td>
                     <td className="px-4 py-3 text-right font-mono">
                       {item.payment ? formatCurrency(parseFloat(String(item.payment.amountPaid))) : "—"}
                     </td>
@@ -219,7 +220,7 @@ export default function RentPage() {
               </p>
               <div className="space-y-2">
                 <Label>Amount</Label>
-                <Input name="amount" type="number" step="0.01" defaultValue={String(recordDialog.rentAmount)} required />
+                <Input name="amount" type="number" step="0.01" defaultValue={String(recordDialog.monthlyDue ?? recordDialog.rentAmount)} required />
               </div>
               <div className="space-y-2">
                 <Label>Payment method</Label>

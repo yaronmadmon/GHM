@@ -29,6 +29,7 @@ import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 import { TenantMessageButton } from "@/components/tenants/TenantMessageButton";
 import { SendPortalInviteButton } from "@/components/tenants/SendPortalInviteButton";
 import { TenantActions } from "@/components/tenants/TenantActions";
+import { MonthlyChargesManager } from "@/components/tenants/MonthlyChargesManager";
 
 type Occupant = {
   name?: string;
@@ -110,6 +111,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
               rentPayments: { orderBy: { dueDate: "asc" } },
               documents: { orderBy: { createdAt: "desc" } },
               transactions: { orderBy: { date: "asc" } },
+              monthlyCharges: { orderBy: { createdAt: "asc" } },
             },
           },
         },
@@ -173,6 +175,18 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
   const currentBalance = activeLease
     ? calculateLeaseOutstandingBalance({ rentPayments: activeLease.rentPayments, transactions: activeLease.transactions })
     : 0;
+  const monthlyCharges = activeLease?.monthlyCharges.filter((charge) => charge.isActive).map((charge) => ({
+    id: charge.id,
+    name: charge.name,
+    category: charge.category,
+    amount: Number(charge.amount),
+    startDate: charge.startDate?.toISOString() ?? null,
+    endDate: charge.endDate?.toISOString() ?? null,
+    isActive: charge.isActive,
+    notes: charge.notes,
+  })) ?? [];
+  const monthlyChargeTotal = monthlyCharges.reduce((sum, charge) => sum + charge.amount, 0);
+  const monthlyTotalDue = Number(activeLease?.rentAmount ?? 0) + monthlyChargeTotal;
   const latestRentPayment = latestDate(activeLease?.rentPayments.map((payment) => payment.paidAt ?? null) ?? []);
   const latestLedgerPayment = latestDate(
     activeLease?.transactions
@@ -249,7 +263,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <div className="rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">Monthly Charges</p>
-            <p className="mt-1 font-mono text-lg font-semibold">{formatCurrency(Number(activeLease?.rentAmount ?? 0))}</p>
+            <p className="mt-1 font-mono text-lg font-semibold">{formatCurrency(monthlyTotalDue)}</p>
           </div>
           <div className="rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">Current Balance</p>
@@ -441,7 +455,11 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             </div>
           </Section>
 
-          <Section title="Monthly Charges" icon={<Receipt className="h-4 w-4" />}>
+          <Section
+            title="Monthly Charges"
+            icon={<Receipt className="h-4 w-4" />}
+            action={activeLease ? <MonthlyChargesManager leaseId={activeLease.id} charges={monthlyCharges} /> : null}
+          >
             {activeLease ? (
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between rounded-lg border p-3">
@@ -451,13 +469,22 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
                   </div>
                   <p className="font-mono font-semibold">{formatCurrency(Number(activeLease.rentAmount))}</p>
                 </div>
+                {monthlyCharges.map((charge) => (
+                  <div key={charge.id} className="flex items-center justify-between rounded-lg border p-3">
+                    <div>
+                      <p className="font-medium">{charge.name}</p>
+                      <p className="text-xs capitalize text-muted-foreground">{charge.category.replace("_", " ")}</p>
+                    </div>
+                    <p className="font-mono font-semibold">{formatCurrency(charge.amount)}</p>
+                  </div>
+                ))}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Total charges for this month</span>
-                  <span className="font-mono font-semibold">{formatCurrency(Number(activeLease.rentAmount))}</span>
+                  <span className="font-mono font-semibold">{formatCurrency(monthlyTotalDue)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Next charge</span>
-                  <span className="font-medium">{formatCurrency(Number(activeLease.rentAmount))} on the next due date</span>
+                  <span className="font-medium">{formatCurrency(monthlyTotalDue)} on the next due date</span>
                 </div>
               </div>
             ) : (

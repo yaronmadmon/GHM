@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { addDays } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
+import { leaseMonthlyDueForPeriod } from "@/lib/monthly-charges";
 
 type ToolInput = Record<string, unknown>;
 
@@ -784,7 +785,7 @@ export async function handleTool(
         include: {
           leaseLinks: {
             where: { lease: { status: "active" } },
-            include: { lease: { include: { unit: { include: { property: true } } } } },
+            include: { lease: { include: { unit: { include: { property: true } }, monthlyCharges: true } } },
           },
         },
       });
@@ -802,7 +803,7 @@ export async function handleTool(
       const existingPayment = await prisma.rentPayment.findUnique({
         where: { leaseId_periodYear_periodMonth: { leaseId: lease.id, periodYear, periodMonth } },
       });
-      const amountDue = money(existingPayment?.amountDue ?? lease.rentAmount);
+      const amountDue = money(existingPayment?.amountDue ?? leaseMonthlyDueForPeriod(lease.rentAmount, lease.monthlyCharges, periodYear, periodMonth));
       const newPaidTotal = money(existingPayment?.amountPaid) + amountPaid;
       let status = "pending";
       if (newPaidTotal >= amountDue) status = "paid";

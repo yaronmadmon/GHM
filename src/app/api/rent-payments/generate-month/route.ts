@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { z } from "zod";
+import { leaseMonthlyDueForPeriod } from "@/lib/monthly-charges";
 
 const schema = z.object({
   year: z.number().int(),
@@ -16,12 +17,14 @@ export async function POST(req: NextRequest) {
 
     const activeLeases = await prisma.lease.findMany({
       where: { organizationId, status: "active" },
+      include: { monthlyCharges: true },
     });
 
     const dueDate = new Date(year, month - 1, 1);
 
     let created = 0;
     for (const lease of activeLeases) {
+      const amountDue = leaseMonthlyDueForPeriod(lease.rentAmount, lease.monthlyCharges, year, month);
       await prisma.rentPayment.upsert({
         where: { leaseId_periodYear_periodMonth: { leaseId: lease.id, periodYear: year, periodMonth: month } },
         update: {},
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest) {
           leaseId: lease.id,
           periodYear: year,
           periodMonth: month,
-          amountDue: lease.rentAmount,
+          amountDue,
           amountPaid: 0,
           status: "pending",
           dueDate,

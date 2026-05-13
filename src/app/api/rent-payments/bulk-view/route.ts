@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { calculateLeaseBalance } from "@/lib/rent-ledger";
+import { leaseMonthlyDueForPeriod } from "@/lib/monthly-charges";
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
         tenants: { include: { tenant: true } },
         rentPayments: true,
         transactions: true,
+        monthlyCharges: true,
       },
       orderBy: [{ unit: { property: { name: "asc" } } }, { unit: { unitNumber: "asc" } }],
     });
@@ -33,6 +35,7 @@ export async function GET(req: NextRequest) {
         unit: lease.unit,
         tenants: lease.tenants.map((lt) => lt.tenant),
         rentAmount: lease.rentAmount,
+        monthlyDue: leaseMonthlyDueForPeriod(lease.rentAmount, lease.monthlyCharges, year, month),
         payment,
         status: payment?.status ?? "not_generated",
         balance,

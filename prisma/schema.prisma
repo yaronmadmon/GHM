@@ -255,6 +255,7 @@ model Lease {
   documents     LeaseDocument[]
   rentPayments  RentPayment[]
   transactions  Transaction[]
+  monthlyCharges LeaseMonthlyCharge[]
   convertedFrom Application?    @relation("converted_lease")
 
   @@index([organizationId])
@@ -262,6 +263,26 @@ model Lease {
   @@index([status])
   @@index([endDate])
   @@map("leases")
+}
+
+model LeaseMonthlyCharge {
+  id          String    @id @default(cuid())
+  leaseId     String
+  name        String
+  category    String    @default("other") // rent | utility | parking | pet_fee | storage | other
+  amount      Decimal   @db.Decimal(10, 2)
+  startDate   DateTime?
+  endDate     DateTime?
+  isActive    Boolean   @default(true)
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([leaseId])
+  @@index([isActive])
+  @@map("lease_monthly_charges")
 }
 
 model LeaseTenant {
