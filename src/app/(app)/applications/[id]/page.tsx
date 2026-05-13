@@ -765,7 +765,13 @@ export default function ApplicationDetailPage() {
 
               {!isApproved && !isDenied && (
                 <div className="space-y-2">
-                  <Button className="w-full gap-2" onClick={() => setConvertOpen(true)} disabled={!canApprove}>
+                  <Button
+                    className="w-full gap-2"
+                    onClick={() => {
+                      setGuardErrors(approvalBlockers);
+                      setConvertOpen(true);
+                    }}
+                  >
                     <CheckCircle className="h-4 w-4" />
                     Approve and create lease
                   </Button>
@@ -857,7 +863,7 @@ export default function ApplicationDetailPage() {
               />
               Send lease for tenant signature immediately after approval
             </label>
-            <Button className="w-full" onClick={handleConvert} disabled={converting || !canApprove}>
+            <Button className="w-full" onClick={handleConvert} disabled={converting}>
               {converting ? "Creating..." : "Approve, create tenant, and generate lease"}
             </Button>
           </div>
