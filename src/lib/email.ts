@@ -13,7 +13,8 @@ function getResend() {
 async function send(to: string, subject: string, html: string) {
   const client = getResend();
   if (!client) { throw new Error("Email not configured: RESEND_API_KEY is missing"); }
-  await client.emails.send({ from: FROM, to, subject, html });
+  const { error } = await client.emails.send({ from: FROM, to, subject, html });
+  if (error) throw new Error(`Resend error: ${error.message}`);
 }
 
 export async function sendNewApplicationAlert(to: string, applicantName: string, propertyName: string, applicationUrl: string) {
