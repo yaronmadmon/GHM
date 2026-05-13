@@ -26,7 +26,17 @@ interface TenantData {
   notes?: string | null;
 }
 
-export function TenantActions({ tenant }: { tenant: TenantData }) {
+export function TenantActions({
+  tenant,
+  editOnly = false,
+  size = "sm",
+  variant = "outline",
+}: {
+  tenant: TenantData;
+  editOnly?: boolean;
+  size?: "sm" | "default";
+  variant?: "outline" | "ghost";
+}) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -99,12 +109,14 @@ export function TenantActions({ tenant }: { tenant: TenantData }) {
 
   return (
     <>
-      <Button size="sm" variant="outline" className="gap-2" onClick={() => setEditOpen(true)}>
+      <Button size={size} variant={variant} className="gap-2" onClick={() => setEditOpen(true)}>
         <Pencil className="h-4 w-4" />Edit
       </Button>
-      <Button size="sm" variant="outline" className="gap-2 text-destructive hover:text-destructive" onClick={() => setDeleteOpen(true)}>
-        <Trash2 className="h-4 w-4" />Delete
-      </Button>
+      {!editOnly && (
+        <Button size="sm" variant="outline" className="gap-2 text-destructive hover:text-destructive" onClick={() => setDeleteOpen(true)}>
+          <Trash2 className="h-4 w-4" />Delete
+        </Button>
+      )}
 
       {/* Edit Sheet */}
       <Sheet open={editOpen} onOpenChange={setEditOpen}>

@@ -185,6 +185,18 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
   const propertyLine = activeLease
     ? `${activeLease.unit.property.name} - ${activeLease.unit.unitNumber} | ${activeLease.unit.property.addressLine1} - ${activeLease.unit.unitNumber}, ${activeLease.unit.property.city}, ${activeLease.unit.property.state} ${activeLease.unit.property.zip}`
     : "No active occupancy";
+  const tenantActionData = {
+    id: tenant.id,
+    firstName: tenant.firstName,
+    lastName: tenant.lastName,
+    email: tenant.email,
+    phone: tenant.phone,
+    dateOfBirth: tenant.dateOfBirth,
+    ssnLast4: tenant.ssnLast4,
+    emergencyContactName: tenant.emergencyContactName,
+    emergencyContactPhone: tenant.emergencyContactPhone,
+    notes: tenant.notes,
+  };
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
@@ -206,18 +218,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <TenantActions
-            tenant={{
-              id: tenant.id,
-              firstName: tenant.firstName,
-              lastName: tenant.lastName,
-              email: tenant.email,
-              phone: tenant.phone,
-              dateOfBirth: tenant.dateOfBirth,
-              ssnLast4: tenant.ssnLast4,
-              emergencyContactName: tenant.emergencyContactName,
-              emergencyContactPhone: tenant.emergencyContactPhone,
-              notes: tenant.notes,
-            }}
+            tenant={tenantActionData}
           />
           <Link href={`/tenants/${id}/ledger`}>
             <Button size="sm" variant="outline" className="gap-2">
@@ -283,7 +284,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-5">
-          <Section title="Tenants" icon={<Users className="h-4 w-4" />} action={<Button variant="ghost" size="sm">Edit</Button>}>
+          <Section title="Tenants" icon={<Users className="h-4 w-4" />} action={<TenantActions tenant={tenantActionData} editOnly variant="ghost" />}>
             <div className="space-y-3 text-sm">
               {leaseTenants.length > 0 ? leaseTenants.map((link) => (
                 <div key={link.id} className="flex items-center justify-between rounded-lg border p-3">
@@ -316,7 +317,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             </div>
           </Section>
 
-          <Section title={tenantName} icon={<User className="h-4 w-4" />} action={<Button variant="ghost" size="sm">Edit</Button>}>
+          <Section title={tenantName} icon={<User className="h-4 w-4" />} action={<TenantActions tenant={tenantActionData} editOnly variant="ghost" />}>
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <Field label="Birthday" value={tenant.dateOfBirth ? formatDate(tenant.dateOfBirth) : app?.dateOfBirth ? formatDate(app.dateOfBirth) : "--"} />
@@ -333,7 +334,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             </div>
           </Section>
 
-          <Section title="Contact" icon={<Phone className="h-4 w-4" />} action={<Button variant="ghost" size="sm">Edit</Button>}>
+          <Section title="Contact" icon={<Phone className="h-4 w-4" />} action={<TenantActions tenant={tenantActionData} editOnly variant="ghost" />}>
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone Numbers</p>
@@ -490,7 +491,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             </div>
           </Section>
 
-          <Section title="Emergency Contact" icon={<ShieldCheck className="h-4 w-4" />} action={<Button variant="ghost" size="sm">Edit</Button>}>
+          <Section title="Emergency Contact" icon={<ShieldCheck className="h-4 w-4" />} action={<TenantActions tenant={tenantActionData} editOnly variant="ghost" />}>
             <Field label="Name" value={tenant.emergencyContactName ?? app?.emergencyContactName ?? "--"} />
             <Field label="Phone" value={tenant.emergencyContactPhone ?? app?.emergencyContactPhone ?? "--"} />
             <Field label="Relation" value={app?.emergencyContactRelation ?? "--"} />
@@ -536,7 +537,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             )}
           </Section>
 
-          <Section title="Notes" icon={<ScrollText className="h-4 w-4" />}>
+          <Section title="Notes" icon={<ScrollText className="h-4 w-4" />} action={<TenantActions tenant={tenantActionData} editOnly variant="ghost" />}>
             {tenant.notes || app?.additionalNotes ? (
               <p className="whitespace-pre-wrap text-sm">{tenant.notes ?? app?.additionalNotes}</p>
             ) : (

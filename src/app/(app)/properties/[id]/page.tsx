@@ -10,6 +10,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { PropertyDeleteButton } from "@/components/properties/PropertyActions";
 import { PropertyPhotoGallery } from "@/components/properties/PropertyPhotoGallery";
 import { PropertyExpensesEditor } from "@/components/properties/PropertyExpensesEditor";
+import { PropertyInfoEditor } from "@/components/properties/PropertyInfoEditor";
 
 const STATUS_STYLES: Record<string, string> = {
   occupied: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
@@ -43,6 +44,20 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
   if (!property) notFound();
 
   const occupiedUnits = property.units.filter((u) => u.status === "occupied").length;
+  const propertyInfo = {
+    id: property.id,
+    name: property.name,
+    addressLine1: property.addressLine1,
+    addressLine2: property.addressLine2,
+    city: property.city,
+    state: property.state,
+    zip: property.zip,
+    propertyType: property.propertyType,
+    status: property.status,
+    description: property.description,
+    purchasePrice: property.purchasePrice == null ? null : Number(property.purchasePrice),
+    purchaseDate: property.purchaseDate,
+  };
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
@@ -58,7 +73,10 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             {property.addressLine1}, {property.city}, {property.state} {property.zip}
           </p>
         </div>
-        <Badge className={`border shrink-0 ${STATUS_STYLES[property.status] ?? ""}`}>{property.status}</Badge>
+        <div className="flex shrink-0 items-center gap-2">
+          <PropertyInfoEditor property={propertyInfo} />
+          <Badge className={`border ${STATUS_STYLES[property.status] ?? ""}`}>{property.status}</Badge>
+        </div>
       </div>
 
       {/* Photo gallery */}
@@ -222,8 +240,9 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
       {/* Property details */}
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-medium">Property Details</CardTitle>
+          <PropertyInfoEditor property={propertyInfo} variant="ghost" />
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 text-sm">
           <div><p className="text-muted-foreground text-xs">Type</p><p className="capitalize">{property.propertyType.replace("_", " ")}</p></div>
