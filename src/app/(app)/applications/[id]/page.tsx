@@ -89,6 +89,33 @@ const NEXT_STATUS: Record<string, { status: string; label: string }> = {
   under_review: { status: "screening", label: "Start Screening" },
 };
 
+const STAGE_HELP: Record<string, { title: string; body: string }> = {
+  pending: {
+    title: "New application submitted",
+    body: "Review the applicant profile and decide whether more documents are needed.",
+  },
+  documents_requested: {
+    title: "Documents stage",
+    body: "Check the uploaded files. When the file looks complete, move it to underwriting review.",
+  },
+  under_review: {
+    title: "Underwriting review",
+    body: "Review income, rental history, and documents. Start screening when you are ready to record the background check.",
+  },
+  screening: {
+    title: "Decision stage",
+    body: "Record the screening result. If requirements are complete, approve and create the tenant lease. Otherwise deny the application.",
+  },
+  approved: {
+    title: "Approved application",
+    body: "The applicant has been converted. Continue with lease signing and countersignature.",
+  },
+  denied: {
+    title: "Application denied",
+    body: "This application is closed. No conversion or lease signing action is available.",
+  },
+};
+
 export default function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [app, setApp] = useState<Application | null>(null);
@@ -122,103 +149,141 @@ export default function ApplicationDetailPage() {
     const next = NEXT_STATUS[app.status];
     if (!next) return;
     setAdvancing(true);
-    const res = await fetch(`/api/applications/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: next.status }),
-    });
-    setAdvancing(false);
-    if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Failed"); return; }
-    toast.success(`Status updated to: ${next.label}`);
-    setApp((a) => a ? { ...a, status: next.status } : null);
+    try {
+      const res = await fetch(`/api/applications/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next.status }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? "Failed to update status");
+        return;
+      }
+      toast.success(`Moved to ${next.label}`);
+      setApp((a) => a ? { ...a, status: next.status } : null);
+      loadApp();
+    } catch {
+      toast.error("Could not update the application. Try again.");
+    } finally {
+      setAdvancing(false);
+    }
   }
-
   async function handleDeny() {
     setDenying(true);
-    const res = await fetch(`/api/applications/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "denied" }),
-    });
-    setDenying(false);
-    if (res.ok) { toast.success("Application denied"); setApp((a) => a ? { ...a, status: "denied" } : null); }
-    else toast.error("Failed to update");
+    try {
+      const res = await fetch(`/api/applications/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "denied" }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? "Failed to deny application");
+        return;
+      }
+      toast.success("Application denied");
+      setApp((a) => a ? { ...a, status: "denied" } : null);
+      loadApp();
+    } catch {
+      toast.error("Could not deny the application. Try again.");
+    } finally {
+      setDenying(false);
+    }
   }
-
   async function handleConvert() {
     if (!convertForm.startDate || !convertForm.rentAmount) { toast.error("Start date and rent are required"); return; }
     setConverting(true);
     setGuardErrors([]);
-    const res = await fetch(`/api/applications/${id}/convert`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        startDate: convertForm.startDate,
-        endDate: convertForm.endDate || undefined,
-        rentAmount: parseFloat(convertForm.rentAmount),
-        depositAmount: parseFloat(convertForm.depositAmount || "0"),
-      }),
-    });
-    setConverting(false);
-    if (!res.ok) {
-      const d = await res.json();
-      if (d.guards) { setGuardErrors(d.guards); toast.error("Requirements not met — see checklist"); }
-      else toast.error(d.error ?? "Failed to convert");
-      return;
+    try {
+      const res = await fetch(`/api/applications/${id}/convert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: convertForm.startDate,
+          endDate: convertForm.endDate || undefined,
+          rentAmount: parseFloat(convertForm.rentAmount),
+          depositAmount: parseFloat(convertForm.depositAmount || "0"),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.guards) { setGuardErrors(data.guards); toast.error("Requirements not met. See checklist."); }
+        else toast.error(data.error ?? "Failed to convert");
+        return;
+      }
+      const data = await res.json();
+      toast.success("Approved. Tenant and draft lease created.");
+      setApp((a) => a ? {
+        ...a,
+        status: "approved",
+        convertedTenantId: data.tenant.id,
+        convertedLeaseId: data.lease.id,
+        convertedTenant: data.tenant,
+        convertedLease: data.lease,
+      } : null);
+      setConvertOpen(false);
+      loadApp();
+    } catch {
+      toast.error("Could not approve and convert. Try again.");
+    } finally {
+      setConverting(false);
     }
-    const data = await res.json();
-    toast.success("Approved. Tenant and draft lease created.");
-    setApp((a) => a ? {
-      ...a,
-      status: "approved",
-      convertedTenantId: data.tenant.id,
-      convertedLeaseId: data.lease.id,
-      convertedTenant: data.tenant,
-      convertedLease: data.lease,
-    } : null);
-    setConvertOpen(false);
   }
-
   async function handleSendLease() {
     if (!app?.convertedLeaseId) return;
     setSendingLease(true);
-    const res = await fetch(`/api/leases/${app.convertedLeaseId}/send-for-signing`, { method: "POST" });
-    setSendingLease(false);
-    if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Failed to send"); return; }
-    const d = await res.json();
-    setSignUrl(d.signUrl ?? "");
-    setApp((a) => a?.convertedLease ? {
-      ...a,
-      convertedLease: {
-        ...a.convertedLease,
-        signingStatus: d.signingStatus ?? "sent",
-        signingToken: d.signingToken ?? a.convertedLease.signingToken,
-      },
-    } : a);
-    toast.success("Lease sent to tenant for signing!");
+    try {
+      const res = await fetch(`/api/leases/${app.convertedLeaseId}/send-for-signing`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? "Failed to send lease");
+        return;
+      }
+      const data = await res.json();
+      setSignUrl(data.signUrl ?? "");
+      setApp((a) => a?.convertedLease ? {
+        ...a,
+        convertedLease: {
+          ...a.convertedLease,
+          signingStatus: data.signingStatus ?? "sent",
+          signingToken: data.signingToken ?? a.convertedLease.signingToken,
+        },
+      } : a);
+      toast.success("Lease sent to tenant for signing.");
+      loadApp();
+    } catch {
+      toast.error("Could not send the lease. Try again.");
+    } finally {
+      setSendingLease(false);
+    }
   }
-
   async function handleCountersign() {
     if (!app?.convertedLeaseId) return;
     setCountersigning(true);
-    const res = await fetch(`/api/leases/${app.convertedLeaseId}/countersign`, { method: "POST" });
-    setCountersigning(false);
-    if (!res.ok) {
-      const d = await res.json();
-      toast.error(d.error ?? "Failed to countersign");
-      return;
+    try {
+      const res = await fetch(`/api/leases/${app.convertedLeaseId}/countersign`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error ?? "Failed to countersign");
+        return;
+      }
+      toast.success("Lease countersigned. Tenant is fully active.");
+      setApp((a) => a?.convertedLease ? {
+        ...a,
+        convertedLease: {
+          ...a.convertedLease,
+          signingStatus: "fully_signed",
+          landlordSignedAt: new Date().toISOString(),
+        },
+      } : a);
+      loadApp();
+    } catch {
+      toast.error("Could not countersign the lease. Try again.");
+    } finally {
+      setCountersigning(false);
     }
-    toast.success("Lease countersigned. Tenant is fully active.");
-    setApp((a) => a?.convertedLease ? {
-      ...a,
-      convertedLease: {
-        ...a.convertedLease,
-        signingStatus: "fully_signed",
-        landlordSignedAt: new Date().toISOString(),
-      },
-    } : a);
   }
-
   if (!app) return <div className="p-6 text-muted-foreground">Loading...</div>;
 
   const currentStepIndex = STATUS_STEPS.findIndex((s) => s.value === app.status);
@@ -233,6 +298,13 @@ export default function ApplicationDetailPage() {
   const screeningOk = screeningStatus === "passed" || screeningStatus === "conditional";
   const hasDocs = docs.length > 0;
   const canApprove = hasEmail && screeningOk && hasDocs;
+  const stageHelp = STAGE_HELP[app.status] ?? STAGE_HELP.pending;
+  const next = NEXT_STATUS[app.status];
+  const approvalBlockers = [
+    !hasEmail ? "Applicant email is missing" : null,
+    !hasDocs ? "At least one document is required" : null,
+    !screeningOk ? "Screening must be passed or conditional" : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -300,31 +372,45 @@ export default function ApplicationDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Action bar */}
       {!isDenied && !isApproved && (
-        <div className="flex flex-wrap gap-2 mb-5">
-          {canAdvance && (
-            <Button onClick={advanceStatus} disabled={advancing} variant="outline" size="sm">
-              {advancing ? "Updating..." : `→ ${NEXT_STATUS[app.status].label}`}
-            </Button>
-          )}
-          {app.status === "screening" && (
-            <Button
-              onClick={() => { setGuardErrors([]); setConvertOpen(true); }}
-              disabled={!canApprove}
-              title={!canApprove ? "Requires: email, docs, and passed screening" : ""}
-              className="gap-2"
-              size="sm"
-            >
-              <CheckCircle className="h-4 w-4" />Approve & Convert
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={handleDeny} disabled={denying} className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/10">
-            <XCircle className="h-4 w-4" />{denying ? "Denying..." : "Deny"}
-          </Button>
-        </div>
+        <Card className="mb-5 border-primary/20">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Current stage: {stageHelp.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{stageHelp.body}</p>
+            {approvalBlockers.length > 0 && app.status === "screening" && (
+              <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+                <p className="mb-1 font-medium">Before approving:</p>
+                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                  {approvalBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+                </ul>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {canAdvance && next && (
+                <Button onClick={advanceStatus} disabled={advancing} size="sm" className="gap-2">
+                  {advancing ? "Updating..." : next.label}
+                </Button>
+              )}
+              {app.status === "screening" && (
+                <Button
+                  onClick={() => { setGuardErrors([]); setConvertOpen(true); }}
+                  disabled={!canApprove || converting}
+                  title={!canApprove ? "Requires email, documents, and passed or conditional screening" : ""}
+                  className="gap-2"
+                  size="sm"
+                >
+                  <CheckCircle className="h-4 w-4" />Approve and Create Tenant + Lease
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={handleDeny} disabled={denying} className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/10">
+                <XCircle className="h-4 w-4" />{denying ? "Denying..." : "Deny Application"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
-
       {isApproved && app.convertedLeaseId && (
         <div className="flex gap-2 flex-wrap mb-5">
           {leaseStatus === "draft" && (
