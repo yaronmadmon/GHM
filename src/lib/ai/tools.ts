@@ -82,12 +82,38 @@ export const tools: OpenAI.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "get_financial_summary",
-      description: "Get income vs expense summary for a given month",
+      description: "Get real income collected, expenses, rent roll, vacancy, and net summary for a given month",
       parameters: {
         type: "object",
         properties: {
           year: { type: "number", description: "Year (default current)" },
           month: { type: "number", description: "Month 1-12 (default current)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_portfolio_financial_snapshot",
+      description: "Get the authoritative portfolio financial snapshot: rent roll, collected rent, vacancies, outstanding balances, expenses, maintenance, and data sources. Use before answering portfolio income, cash flow, vacancy, balance, or financial health questions.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "calculate_income_scenario",
+      description: "Calculate a real-data what-if income scenario, such as filling vacancies, collecting outstanding balances, adding rent, or reducing monthly expenses.",
+      parameters: {
+        type: "object",
+        properties: {
+          includeAllVacancies: { type: "boolean", description: "Set true when the user asks what income would be if all vacancies were rented." },
+          fillVacancies: { type: "number", description: "Number of vacant units to fill, using the highest projected rents first." },
+          additionalMonthlyRent: { type: "number", description: "Extra recurring rent or other monthly income to add to the scenario." },
+          monthlyExpenseReduction: { type: "number", description: "Monthly expense savings to include in projected net income." },
+          collectionTarget: { type: "number", description: "One-time tenant balance collection target. Omit to use all outstanding balances when the user says collect all balances." },
+          collectAllOutstanding: { type: "boolean", description: "Set true when the user asks what happens if all outstanding balances are collected." },
         },
       },
     },
@@ -183,6 +209,21 @@ export const tools: OpenAI.Chat.ChatCompletionTool[] = [
           email: { type: "string" },
           phone: { type: "string" },
           notes: { type: "string" },
+        },
+        required: ["tenantId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_tenant",
+      description: "Delete a tenant record. Destructive action: only use after the user clearly confirms which tenant to delete. Get tenantId from get_tenants first.",
+      parameters: {
+        type: "object",
+        properties: {
+          tenantId: { type: "string" },
+          force: { type: "boolean", description: "Required only when the tenant has active leases. This removes lease links and portal sessions before deleting." },
         },
         required: ["tenantId"],
       },
@@ -294,7 +335,7 @@ export const tools: OpenAI.Chat.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "record_payment",
-      description: "Record a rent payment. Requires user confirmation before committing.",
+      description: "Record a rent payment after the user clearly states the tenant and amount. Look up the tenant first if needed.",
       parameters: {
         type: "object",
         properties: {
@@ -413,7 +454,7 @@ export const tools: OpenAI.Chat.ChatCompletionTool[] = [
           applicationId: { type: "string" },
           name: { type: "string" },
           url: { type: "string" },
-          docType: { type: "string", enum: ["pay_stub", "id", "bank_statement", "other"] },
+          docType: { type: "string", enum: ["pay_stub", "government_id", "bank_statement", "tax_return", "previous_lease", "other"] },
         },
         required: ["applicationId", "name", "url", "docType"],
       },

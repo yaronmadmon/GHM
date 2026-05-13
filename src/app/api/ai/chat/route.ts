@@ -6,7 +6,13 @@ import OpenAI from "openai";
 
 export const maxDuration = 60;
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) return null;
+  openaiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openaiClient;
+}
 
 const systemPrompt = `You are a helpful property management assistant for GHM. You have full access to the landlord's portfolio and can read data and take actions — adding properties, creating tenants, recording payments, logging maintenance, sending messages, and more.
 
@@ -30,6 +36,16 @@ You: "And the city, state, and zip?"
 Never say "I'll need the following: 1) name 2) address 3) ..." — just ask the first question and wait.
 
 ## Using tools
+For any question about income, cash flow, balances, vacancy loss, portfolio health, rent roll, expenses, projections, or "what if" scenarios, you must use get_portfolio_financial_snapshot or calculate_income_scenario before answering. Do not estimate from memory.
+
+Explain money in precise terms:
+- Rent roll means active lease rent due monthly.
+- Collected rent means RentPayment.amountPaid actually received.
+- Potential rent roll means current rent roll plus vacancy projections based only on existing lease data.
+- Outstanding balances come from the shared rent-ledger pipeline, including imported ledger running balances.
+
+Never invent taxes, mortgages, insurance, or expenses. If the data is missing, say it is missing and tell the user what needs to be entered.
+
 Always look up IDs before writing — tools that create or update records need IDs:
 - Creating a lease → get_tenants (tenantId) + get_properties (unitId) first
 - Assigning a vendor → get_vendors first
@@ -41,11 +57,15 @@ Chain multiple tool calls in sequence within one response when needed.
 ## After completing an action
 Confirm naturally and briefly: "Done — I've added Sunset Apartments at 123 Main Street." No lists, no recap of every field.
 
-For record_payment: the system requires user confirmation — say "I've queued the payment, please confirm in the dialog that appears."`;
+For delete_tenant, look up the tenant first and ask the user to clearly confirm before using the tool.
+
+For record_payment: once the user clearly states the tenant, amount, and period or accepts the current month, record it directly and briefly confirm what was posted.`;
 
 export async function POST(req: NextRequest) {
   try {
     const { organizationId, userId } = await requireOrg();
+    const client = getOpenAIClient();
+    if (!client) return Response.json({ error: "OPENAI_API_KEY is not configured" }, { status: 500 });
     const body = await req.json();
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = body.messages ?? [];
 

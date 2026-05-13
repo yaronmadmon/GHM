@@ -2,18 +2,7 @@ import { requireOrg } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
-import { estimatePropertyExpenses } from "@/lib/expense-estimator";
 import OpenAI from "openai";
-
-interface PropertyAnalysis {
-  propertyId: string;
-  propertyName: string;
-  healthScore: number;
-  priority: "critical" | "attention" | "good";
-  issues: string[];
-  opportunities: string[];
-  summary: string;
-}
 
 export const maxDuration = 60;
 
@@ -76,7 +65,11 @@ async function buildPortfolioSnapshot(organizationId: string) {
     }),
     prisma.transaction.findMany({
       where: { organizationId, date: { gte: lastTwelveMonths } },
-      include: { property: { select: { id: true, name: true } }, unit: { select: { unitNumber: true } } },
+      include: {
+        property: { select: { id: true, name: true } },
+        unit: { select: { unitNumber: true } },
+        lease: { select: { id: true } },
+      },
       orderBy: { date: "desc" },
     }),
     prisma.lease.findMany({
@@ -243,6 +236,14 @@ async function buildPortfolioSnapshot(organizationId: string) {
     .filter((property) => property.amount > Math.max(3000, expenses12 * 0.18))
     .slice(0, 5);
 
+  const monthlyKnownPropertyExpenses = properties.reduce((sum, property) => {
+    const exp = property.expenses;
+    if (!exp) return sum;
+    return sum + [exp.propertyTaxMonthly, exp.waterSewerMonthly, exp.electricityMonthly, exp.gasMonthly,
+      exp.insuranceMonthly, exp.mortgageMonthly, exp.hoaMonthly, exp.otherMonthly]
+      .reduce((innerSum, value) => innerSum + (value !== null ? Number(value) : 0), 0);
+  }, 0);
+
   const overdueItems = activeLeases
     .map((lease) => {
       const tenant = lease.tenants[0]?.tenant;
@@ -290,6 +291,16 @@ async function buildPortfolioSnapshot(organizationId: string) {
     const propActiveUnits = propUnits.filter((u) => u.activeLease);
     const monthlyRentRoll = propActiveUnits.reduce((sum, u) => sum + numberValue(u.activeLease?.rentAmount), 0);
     const exp = property.expenses;
+    const expenseBreakdown = exp ? {
+      propertyTaxMonthly: exp.propertyTaxMonthly == null ? null : Math.round(Number(exp.propertyTaxMonthly)),
+      waterSewerMonthly: exp.waterSewerMonthly == null ? null : Math.round(Number(exp.waterSewerMonthly)),
+      electricityMonthly: exp.electricityMonthly == null ? null : Math.round(Number(exp.electricityMonthly)),
+      gasMonthly: exp.gasMonthly == null ? null : Math.round(Number(exp.gasMonthly)),
+      insuranceMonthly: exp.insuranceMonthly == null ? null : Math.round(Number(exp.insuranceMonthly)),
+      mortgageMonthly: exp.mortgageMonthly == null ? null : Math.round(Number(exp.mortgageMonthly)),
+      hoaMonthly: exp.hoaMonthly == null ? null : Math.round(Number(exp.hoaMonthly)),
+      otherMonthly: exp.otherMonthly == null ? null : Math.round(Number(exp.otherMonthly)),
+    } : null;
     const monthlyExpenses = exp
       ? [exp.propertyTaxMonthly, exp.waterSewerMonthly, exp.electricityMonthly, exp.gasMonthly,
          exp.insuranceMonthly, exp.mortgageMonthly, exp.hoaMonthly, exp.otherMonthly]
@@ -309,7 +320,11 @@ async function buildPortfolioSnapshot(organizationId: string) {
       occupancyRate: propUnits.length ? Math.round((propActiveUnits.length / propUnits.length) * 100) : 0,
       monthlyRentRoll: Math.round(monthlyRentRoll),
       monthlyExpenses: monthlyExpenses !== null ? Math.round(monthlyExpenses) : null,
+      expenseBreakdown,
       hasExpenses: exp !== null,
+      missingExpenseCategories: expenseBreakdown
+        ? Object.entries(expenseBreakdown).filter(([, value]) => value === null).map(([key]) => key)
+        : ["propertyTaxMonthly", "waterSewerMonthly", "electricityMonthly", "gasMonthly", "insuranceMonthly", "mortgageMonthly", "hoaMonthly", "otherMonthly"],
       openMaintenanceCount: maintenanceByProperty[property.id] ?? 0,
       overdueTenantCount: overdueInfo.count,
       overdueBalance: Math.round(overdueInfo.balance),
@@ -329,6 +344,8 @@ async function buildPortfolioSnapshot(organizationId: string) {
       vacancyLossMonthly: Math.round(vacancyLossMonthly),
       vacancyLossAnnual: Math.round(vacancyLossMonthly * 12),
       medianActiveRent: Math.round(portfolioMedianRent),
+      currentMonthlyNet: Math.round(incomeMonth - expensesMonth),
+      knownRecurringExpensesMonthly: Math.round(monthlyKnownPropertyExpenses),
     },
     financials: {
       trailingTwelveMonths: {
@@ -365,12 +382,37 @@ async function buildPortfolioSnapshot(organizationId: string) {
       expiringLeaseCount: expiringLeases.length,
       pendingApplicationCount: pendingApplications.length,
     },
+    dataSources: {
+      rentRoll: { source: "Lease.rentAmount on active leases", confidence: activeLeases.length > 0 ? "high" : "low" },
+      rentCollected: { source: "RentPayment.amountPaid records", confidence: allRentPayments.length > 0 ? "high" : "low" },
+      tenantBalances: { source: "RentPayment ledger plus imported ledger running balances when present", confidence: activeLeases.length > 0 ? "high" : "low" },
+      transactionExpenses: { source: "Transaction rows where type=expense from trailing 12 months", confidence: expensesByCategory.length > 0 ? "high" : "low" },
+      recurringExpenses: { source: "PropertyExpenses records for taxes, insurance, mortgage, utilities, HOA, and other monthly expenses", confidence: properties.every((p) => p.expenses) ? "high" : properties.some((p) => p.expenses) ? "medium" : "low" },
+      maintenance: { source: "MaintenanceRequest open/in_progress/pending_parts records", confidence: "high" },
+      vacancyOpportunity: { source: "Vacant units estimated from same-property rents, same-layout rents, prior rent, then portfolio median", confidence: vacantUnitDetails.some((unit) => unit.lastRent != null) || activeRents.length > 0 ? "medium" : "low" },
+    },
+    dataQuality: {
+      missingExpenseProperties: propertyDetails.filter((property) => !property.hasExpenses).map((property) => property.name),
+      partialExpenseProperties: propertyDetails
+        .filter((property) => property.hasExpenses && property.missingExpenseCategories.length > 0)
+        .map((property) => ({
+          propertyName: property.name,
+          missing: property.missingExpenseCategories,
+        })),
+      warnings: [
+        properties.some((property) => !property.expenses)
+          ? `${properties.filter((property) => !property.expenses).length} properties are missing recurring expense settings, so taxes/mortgage/insurance cash-flow analysis may be understated.`
+          : null,
+        expensesByCategory.length === 0 ? "No trailing 12-month expense transactions are recorded." : null,
+        allRentPayments.length === 0 ? "No rent payment rows are recorded, so collected-rent analysis is limited." : null,
+      ].filter((warning): warning is string => Boolean(warning)),
+    },
     calculationNotes: {
       income: "financials.*.income = rentCollected (from RentPayment records) + otherIncome (late fees, deposits, etc. from Transaction records, excluding rent-charge category). Does NOT double-count: rent-category Transactions are charges owed, not cash received.",
       rentRoll: "portfolio.monthlyActualRentRoll is the sum of active lease rent amounts — the contractual obligation. rentCollected is the actual cash received per the payment ledger.",
       overdueBalance: "Net open balance across active lease ledgers, calculated from rent payment rows plus imported ledger transactions. It uses recorded app data only.",
       vacancyLoss: "Estimated from vacant units multiplied by comparable in-portfolio rents when available, then prior rent or portfolio median rent.",
-      expenses: "Uses Transaction rows from the trailing 12 months (type=expense). Excludes misclassified tenant-payment entries that were cleaned up.",
+      expenses: "Uses actual Transaction rows from the trailing 12 months (type=expense) and saved PropertyExpenses records. Missing recurring expense fields are reported as missing instead of estimated.",
     },
     propertyDetails,
     focusItems: {
@@ -408,7 +450,101 @@ async function buildPortfolioSnapshot(organizationId: string) {
   };
 }
 
+function buildAdvisorPlan(snapshot: PortfolioSnapshot) {
+  const topCollections = snapshot.focusItems.overduePayments.slice(0, 5);
+  const topVacancies = snapshot.vacancies.slice(0, 5);
+  const topExpense = snapshot.financials.expensesByCategory[0];
+  const monthlyExpenseSavingsTarget = topExpense ? Math.round((topExpense.amount / 12) * 0.1) : 0;
+  const collectionTarget30 = Math.round(
+    Math.min(
+      snapshot.risks.overdueBalance,
+      topCollections.slice(0, 3).reduce((sum, item) => sum + item.owed, 0),
+    ),
+  );
+  const potentialMonthlyNet = snapshot.portfolio.currentMonthlyNet
+    + snapshot.portfolio.vacancyLossMonthly
+    + monthlyExpenseSavingsTarget;
+  const annualUpside = Math.round((snapshot.portfolio.vacancyLossMonthly + monthlyExpenseSavingsTarget) * 12);
+
+  const priorities = [
+    snapshot.risks.overdueBalance > 0 ? {
+      title: "Collect the largest balances first",
+      directive: topCollections.length
+        ? `Start with ${topCollections.slice(0, 3).map((item) => `${item.tenantName} (${formatCurrency(item.owed)})`).join(", ")}.`
+        : "Review the open balance list and contact tenants with the largest balances.",
+      why: `There is ${formatCurrency(snapshot.risks.overdueBalance)} in outstanding tenant balances across ${snapshot.risks.overdueTenantCount} tenants.`,
+      impact: `${formatCurrency(collectionTarget30)} practical 30-day collection target from the largest balances.`,
+      source: "Active lease ledgers and imported ledger running balances",
+      confidence: snapshot.dataSources.tenantBalances.confidence,
+    } : null,
+    snapshot.portfolio.vacantUnits > 0 ? {
+      title: "Recover vacancy income",
+      directive: topVacancies.length
+        ? `Prepare and list ${topVacancies.slice(0, 3).map((unit) => `${unit.propertyName} ${unit.unitNumber} (${formatCurrency(unit.projectedRent)}/mo)`).join(", ")} first.`
+        : "Confirm vacant units and set asking rents from in-portfolio rent history.",
+      why: `${snapshot.portfolio.vacantUnits} vacant units represent ${formatCurrency(snapshot.portfolio.vacancyLossMonthly)} per month in recoverable rent roll.`,
+      impact: `${formatCurrency(snapshot.portfolio.vacancyLossAnnual)} annual rent-roll upside if all visible vacancies are filled.`,
+      source: "Unit vacancy status plus same-property/prior rent estimates",
+      confidence: snapshot.dataSources.vacancyOpportunity.confidence,
+    } : null,
+    topExpense ? {
+      title: `Control ${topExpense.category.replace(/_/g, " ")} expense`,
+      directive: `Review the invoices behind ${formatCurrency(topExpense.amount)} in trailing ${topExpense.category.replace(/_/g, " ")} expense and decide what is recurring versus one-time.`,
+      why: `${topExpense.category.replace(/_/g, " ")} is the largest recorded expense category in the trailing 12 months.`,
+      impact: `A 10% reduction would be about ${formatCurrency(monthlyExpenseSavingsTarget)}/mo or ${formatCurrency(monthlyExpenseSavingsTarget * 12)}/yr.`,
+      source: "Transaction expense rows from trailing 12 months",
+      confidence: snapshot.dataSources.transactionExpenses.confidence,
+    } : null,
+    snapshot.dataQuality.warnings.length > 0 ? {
+      title: "Fix missing financial inputs",
+      directive: "Add missing taxes, mortgage, insurance, and utility settings before relying on net cash-flow recommendations.",
+      why: snapshot.dataQuality.warnings[0],
+      impact: "Improves cash-flow accuracy and prevents understated expense analysis.",
+      source: "PropertyExpenses completeness check",
+      confidence: snapshot.dataSources.recurringExpenses.confidence,
+    } : null,
+  ].filter(Boolean);
+
+  return {
+    coachBrief: [
+      `Today: ${snapshot.portfolio.occupiedUnits}/${snapshot.portfolio.unitCount} units are occupied, current rent roll is ${formatCurrency(snapshot.portfolio.monthlyActualRentRoll)}, and current-month net is ${formatCurrency(snapshot.portfolio.currentMonthlyNet)} from recorded income and expenses.`,
+      snapshot.portfolio.vacantUnits > 0
+        ? `The main upside is vacancy recovery: filling visible vacancies could move rent roll toward ${formatCurrency(snapshot.portfolio.monthlyPotentialRent)} per month.`
+        : "The portfolio is fully occupied, so the main operating levers are collections, renewals, and expense control.",
+      snapshot.dataQuality.warnings.length
+        ? `Data caution: ${snapshot.dataQuality.warnings[0]}`
+        : "The core rent roll, collections, and transaction expense data are available for this review.",
+    ],
+    potential: {
+      today: {
+        monthlyRentRoll: snapshot.portfolio.monthlyActualRentRoll,
+        monthlyCollectedRent: snapshot.financials.currentMonth.rentCollected,
+        currentMonthlyNet: snapshot.portfolio.currentMonthlyNet,
+        occupancyRate: snapshot.portfolio.occupancyRate,
+        outstandingBalance: snapshot.risks.overdueBalance,
+      },
+      ifExecuted: {
+        monthlyRentRoll: snapshot.portfolio.monthlyPotentialRent,
+        vacancyMonthlyUpside: snapshot.portfolio.vacancyLossMonthly,
+        monthlyExpenseSavingsTarget,
+        projectedMonthlyNet: potentialMonthlyNet,
+        annualUpside,
+        collectionTarget30,
+      },
+      assumptions: [
+        "Potential rent roll assumes visible vacant units are filled at in-portfolio comparable or prior rents.",
+        "Expense improvement uses only the largest recorded trailing-12-month expense category and a conservative 10% reduction target.",
+        "Collection target is based on the largest visible tenant balances, not guaranteed cash recovery.",
+      ],
+    },
+    priorities,
+    dataConfidence: snapshot.dataSources,
+    dataWarnings: snapshot.dataQuality.warnings,
+  };
+}
+
 function fallbackAnalysis(snapshot: PortfolioSnapshot) {
+  const advisorPlan = buildAdvisorPlan(snapshot);
   const vacancyLoss = snapshot.portfolio.vacancyLossMonthly;
   const topExpense = snapshot.financials.expensesByCategory[0];
   const topVacancy = snapshot.vacancies[0];
@@ -490,12 +626,14 @@ function fallbackAnalysis(snapshot: PortfolioSnapshot) {
       "Use expiring leases to reset under-market rents where legally and contractually allowed.",
     ],
     caveats: ["This is planning support based on data in GHM, not licensed financial, tax, or legal advice."],
+    advisorPlan,
   };
 }
 
 async function generateAnalysis(snapshot: PortfolioSnapshot) {
   const client = getOpenAIClient();
   if (!client) return fallbackAnalysis(snapshot);
+  const advisorPlan = buildAdvisorPlan(snapshot);
 
   const response = await client.chat.completions.create({
     model: "gpt-4o",
@@ -508,10 +646,11 @@ async function generateAnalysis(snapshot: PortfolioSnapshot) {
         content: [
           "You are a senior property portfolio analyst for a landlord.",
           "Analyze only the provided GHM portfolio data. Do not invent comps, legal rules, cap rates, or market facts.",
-          "Do not invent property names, expense categories, balances, trends, causes, or recommendations that are not directly supported by the JSON snapshot.",
+          "Do not invent property names, expense categories, balances, taxes, mortgages, insurance, trends, causes, or recommendations that are not directly supported by the JSON snapshot.",
+          "Use snapshot.dataSources and snapshot.dataQuality. If taxes, mortgage, insurance, or other recurring expenses are missing, call that out instead of estimating.",
           "When discussing collections, use snapshot.risks.overdueBalance only. That number is net unpaid rent and excludes fees/legal/adjustments.",
           "If the snapshot does not contain enough evidence for a claim, say what data is missing instead of guessing.",
-          "Be concrete, numerical, and action-oriented. Treat this as planning support, not licensed financial advice.",
+          "Be directive, numerical, and action-oriented. The user wants a coach: say exactly what to do first, why, and what upside it could unlock.",
           "Return valid JSON with these keys: executiveSummary string[], priorityScore number, focusAreas array of {title, why, impact, urgency}, projectPlan {name, goal, projectedMonthlyUpside, phases array of {name, actions string[], expectedOutcome}}, rentStrategy array of {unit, currentOrLastRent, suggestedRent, rationale}, expenseWatchlist array of {category, amount, recommendation}, nextActions string[], caveats string[].",
         ].join(" "),
       },
@@ -526,7 +665,7 @@ async function generateAnalysis(snapshot: PortfolioSnapshot) {
   if (!content) return fallbackAnalysis(snapshot);
 
   try {
-    return JSON.parse(content);
+    return { ...JSON.parse(content), advisorPlan };
   } catch {
     return fallbackAnalysis(snapshot);
   }
@@ -552,7 +691,8 @@ async function generateChatAnswer(
         content: [
           "You are GHM Financial Advisor, a calm and practical financial coach for landlords and property managers.",
           "Use only the provided portfolio snapshot and conversation history. Do not invent external market comps, laws, cap rates, or facts.",
-          "Do not invent property names, balances, expense categories, trends, or causes. If the answer is not supported by the snapshot, say what data is missing.",
+          "Do not invent property names, balances, expense categories, taxes, mortgage costs, insurance costs, trends, or causes. If the answer is not supported by the snapshot, say what data is missing.",
+          "Use snapshot.dataSources and snapshot.dataQuality to explain confidence and missing inputs.",
           "IMPORTANT: Income figures use snapshot.financials.*.income which equals rentCollected (actual cash received per payment ledger) + otherIncome (fees/deposits). Do NOT confuse this with portfolio.monthlyActualRentRoll (contractual obligation). Use rentCollected for cash-in-hand analysis.",
           "Collections risk must use snapshot.risks.overdueBalance, which is net unpaid rent only.",
           "Answer in plain English with concrete numbers where possible. Prioritize actions, risks, and tradeoffs.",
@@ -576,49 +716,6 @@ async function generateChatAnswer(
     ?? "I could not generate an answer from the current portfolio snapshot.";
 }
 
-async function generatePropertyAnalyses(propertyDetails: PortfolioSnapshot["propertyDetails"]): Promise<PropertyAnalysis[]> {
-  const client = getOpenAIClient();
-  if (!client || !propertyDetails.length) return [];
-
-  const forAI = propertyDetails.map(({ id, name, address, unitCount, occupiedUnits, occupancyRate, monthlyRentRoll, monthlyExpenses, openMaintenanceCount, overdueTenantCount, overdueBalance }) => ({
-    id, name, address, unitCount, occupiedUnits, occupancyRate, monthlyRentRoll, monthlyExpenses,
-    netOperatingIncome: monthlyExpenses !== null ? monthlyRentRoll - monthlyExpenses : null,
-    openMaintenanceCount, overdueTenantCount, overdueBalance,
-  }));
-
-  try {
-    const response = await client.chat.completions.create({
-      model: "gpt-4o",
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-      max_tokens: 2000,
-      messages: [
-        {
-          role: "system",
-          content: [
-            "You are a property portfolio health analyst.",
-            "For each property in the array, generate a health card using only the data provided.",
-            "healthScore: 0-100 (100 = excellent). Penalize for: low occupancy, high overdue balance, many open maintenance issues, negative or unknown NOI.",
-            "priority: 'critical' if healthScore < 60, 'attention' if 60-79, 'good' if >= 80.",
-            "issues: 1-3 specific, concrete problems using the exact numbers provided. Be direct.",
-            "opportunities: 1-2 specific, actionable improvements for this property.",
-            "summary: one sentence describing the property's current health situation.",
-            "Return JSON with key 'propertyAnalyses' as an array of { propertyId, propertyName, healthScore, priority, issues, opportunities, summary }.",
-            "Do not invent data. Use only what is in the input.",
-          ].join(" "),
-        },
-        { role: "user", content: JSON.stringify(forAI) },
-      ],
-    });
-
-    const content = response.choices[0]?.message.content;
-    if (!content) return [];
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed.propertyAnalyses) ? parsed.propertyAnalyses : [];
-  } catch {
-    return [];
-  }
-}
 
 export async function POST(req: Request) {
   try {
@@ -635,37 +732,7 @@ export async function POST(req: Request) {
     }
 
     const analysis = await generateAnalysis(snapshot);
-
-    // Estimate expenses for any property that has no PropertyExpenses record
-    const propertiesNeedingEstimation = snapshot.propertyDetails.filter((p) => !p.hasExpenses);
-    if (propertiesNeedingEstimation.length > 0) {
-      const estimationResults = await Promise.allSettled(
-        propertiesNeedingEstimation.map((p) =>
-          estimatePropertyExpenses({ addressLine1: p.addressLine1, city: p.city, state: p.state, zip: p.zip })
-            .then((estimate) => ({ propertyId: p.id, estimate }))
-        )
-      );
-
-      for (const res of estimationResults) {
-        if (res.status === "fulfilled") {
-          const { propertyId, estimate } = res.value;
-          await prisma.propertyExpenses.create({
-            data: { propertyId, ...estimate, aiEstimatedAt: new Date() },
-          }).catch(() => {});
-          const detail = snapshot.propertyDetails.find((p) => p.id === propertyId);
-          if (detail) {
-            const total = (Object.values(estimate) as (number | null)[])
-              .reduce<number>((sum, v) => sum + (v !== null ? v : 0), 0);
-            detail.monthlyExpenses = Math.round(total);
-            detail.hasExpenses = true;
-          }
-        }
-      }
-    }
-
-    const propertyAnalyses = await generatePropertyAnalyses(snapshot.propertyDetails);
-
-    return Response.json({ snapshot, analysis, propertyAnalyses });
+    return Response.json({ snapshot, analysis });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to analyze portfolio";
     const status = message === "Unauthorized" ? 401 : 500;

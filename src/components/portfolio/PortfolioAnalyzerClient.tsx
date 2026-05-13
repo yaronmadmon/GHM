@@ -1,8 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
-  AlertTriangle,
   ArrowRight,
   Bookmark,
   Bot,
@@ -10,13 +9,11 @@ import {
   Building2,
   CheckCircle2,
   DollarSign,
-  DoorOpen,
   Loader2,
   MessageSquare,
   RefreshCcw,
   Send,
   Sparkles,
-  TrendingDown,
   TrendingUp,
   Wrench,
 } from "lucide-react";
@@ -25,16 +22,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
-
-type PropertyAnalysis = {
-  propertyId: string;
-  propertyName: string;
-  healthScore: number;
-  priority: "critical" | "attention" | "good";
-  issues: string[];
-  opportunities: string[];
-  summary: string;
-};
 
 type Snapshot = {
   generatedAt: string;
@@ -62,6 +49,8 @@ type Snapshot = {
     vacancyLossMonthly: number;
     vacancyLossAnnual: number;
     medianActiveRent: number;
+    currentMonthlyNet: number;
+    knownRecurringExpensesMonthly: number;
   };
   financials: {
     trailingTwelveMonths: {
@@ -71,7 +60,7 @@ type Snapshot = {
       expenseRatio: number | null;
     };
     yearToDate: { income: number; expenses: number; net: number };
-    currentMonth: { income: number; expenses: number; net: number };
+    currentMonth: { income: number; rentCollected: number; expenses: number; net: number };
     expensesByCategory: { category: string; amount: number; count: number }[];
     expensesByProperty: { propertyName: string; amount: number; count: number }[];
   };
@@ -91,6 +80,12 @@ type Snapshot = {
     expiringLeaseCount: number;
     pendingApplicationCount: number;
   };
+  dataSources?: Record<string, { source: string; confidence: string }>;
+  dataQuality?: {
+    missingExpenseProperties: string[];
+    partialExpenseProperties: { propertyName: string; missing: string[] }[];
+    warnings: string[];
+  };
 };
 
 type Analysis = {
@@ -107,12 +102,42 @@ type Analysis = {
   expenseWatchlist: { category: string; amount: string; recommendation: string }[];
   nextActions: string[];
   caveats: string[];
+  advisorPlan?: {
+    coachBrief: string[];
+    potential: {
+      today: {
+        monthlyRentRoll: number;
+        monthlyCollectedRent: number;
+        currentMonthlyNet: number;
+        occupancyRate: number;
+        outstandingBalance: number;
+      };
+      ifExecuted: {
+        monthlyRentRoll: number;
+        vacancyMonthlyUpside: number;
+        monthlyExpenseSavingsTarget: number;
+        projectedMonthlyNet: number;
+        annualUpside: number;
+        collectionTarget30: number;
+      };
+      assumptions: string[];
+    };
+    priorities: {
+      title: string;
+      directive: string;
+      why: string;
+      impact: string;
+      source: string;
+      confidence: string;
+    }[];
+    dataConfidence: Record<string, { source: string; confidence: string }>;
+    dataWarnings: string[];
+  };
 };
 
 type Result = {
   snapshot: Snapshot;
   analysis: Analysis;
-  propertyAnalyses?: PropertyAnalysis[];
 };
 
 type ChatMessage = {
@@ -134,18 +159,8 @@ const RESULT_KEY = "ghm.financialAdvisor.result.v2";
 const CHAT_KEY = "ghm.financialAdvisor.chat.v2";
 const SAVED_PLANS_KEY = "ghm.financialAdvisor.savedPlans";
 
-function urgencyVariant(urgency: string) {
-  return urgency.toLowerCase() === "high" ? "destructive" : "secondary";
-}
-
 function categoryLabel(value: string) {
   return value.replace(/_/g, " ");
-}
-
-function healthTone(score: number) {
-  if (score >= 80) return "text-emerald-600";
-  if (score >= 60) return "text-amber-600";
-  return "text-red-600";
 }
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -184,43 +199,6 @@ export function PortfolioAnalyzerClient() {
     window.localStorage.setItem(SAVED_PLANS_KEY, JSON.stringify(savedPlans));
   }, [savedPlans]);
 
-  const insightCards = useMemo(() => {
-    if (!result) return [];
-    const { snapshot, analysis } = result;
-    const topExpense = snapshot.financials.expensesByCategory[0];
-    const topVacancy = snapshot.vacancies[0];
-
-    return [
-      {
-        title: "Vacancy drag",
-        value: formatCurrency(snapshot.portfolio.vacancyLossMonthly),
-        detail: `${snapshot.portfolio.vacantUnits} vacant units, ${formatCurrency(snapshot.portfolio.vacancyLossAnnual)} annual opportunity`,
-        tone: snapshot.portfolio.vacantUnits > 0 ? "text-amber-600" : "text-emerald-600",
-        icon: DoorOpen,
-      },
-      {
-        title: "Expense pressure",
-        value: topExpense ? formatCurrency(topExpense.amount) : "$0.00",
-        detail: topExpense ? `${categoryLabel(topExpense.category)} is the largest trailing expense category` : "No trailing expenses recorded",
-        tone: topExpense ? "text-red-600" : "text-muted-foreground",
-        icon: TrendingDown,
-      },
-      {
-        title: "Collections risk",
-        value: formatCurrency(snapshot.risks.overdueBalance),
-        detail: `${snapshot.risks.overdueTenantCount} tenants need collection attention`,
-        tone: snapshot.risks.overdueBalance > 0 ? "text-red-600" : "text-emerald-600",
-        icon: AlertTriangle,
-      },
-      {
-        title: "Advisor score",
-        value: String(analysis.priorityScore),
-        detail: analysis.priorityScore >= 80 ? "Portfolio is in a stronger operating position" : "There are clear operating priorities to address",
-        tone: healthTone(analysis.priorityScore),
-        icon: Brain,
-      },
-    ];
-  }, [result]);
 
   async function runAnalysis() {
     setLoading(true);
@@ -398,10 +376,10 @@ export function PortfolioAnalyzerClient() {
               <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Advisor brief</CardTitle>
+                    <CardTitle>Coach brief</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {result.analysis.executiveSummary.slice(0, 3).map((item) => (
+                    {(result.analysis.advisorPlan?.coachBrief ?? result.analysis.executiveSummary).slice(0, 3).map((item) => (
                       <div key={item} className="flex gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         <p>{item}</p>
@@ -412,38 +390,47 @@ export function PortfolioAnalyzerClient() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Highest-value signals</CardTitle>
+                    <CardTitle>Portfolio potential</CardTitle>
                   </CardHeader>
-                  <CardContent className="grid gap-3 sm:grid-cols-2">
-                    {insightCards.map((insight) => {
-                      const Icon = insight.icon;
-                      return (
-                        <div key={insight.title} className="rounded-lg border p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs font-medium text-muted-foreground">{insight.title}</p>
-                            <Icon className="h-4 w-4 text-muted-foreground" />
-                          </div>
-                          <p className={`mt-2 text-xl font-semibold ${insight.tone}`}>{insight.value}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{insight.detail}</p>
-                        </div>
-                      );
-                    })}
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Today rent roll</p>
+                        <p className="mt-1 text-xl font-semibold">{formatCurrency(result.analysis.advisorPlan?.potential.today.monthlyRentRoll ?? result.snapshot.portfolio.monthlyActualRentRoll)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{result.snapshot.portfolio.occupancyRate}% occupied</p>
+                      </div>
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-500/5 p-3">
+                        <p className="text-xs text-muted-foreground">Potential rent roll</p>
+                        <p className="mt-1 text-xl font-semibold text-emerald-600">{formatCurrency(result.analysis.advisorPlan?.potential.ifExecuted.monthlyRentRoll ?? result.snapshot.portfolio.monthlyPotentialRent)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{formatCurrency(result.snapshot.portfolio.vacancyLossMonthly)}/mo vacancy upside</p>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Potential if plan is executed</p>
+                      <p className="mt-1 text-sm">
+                        Monthly net could move from <span className="font-semibold">{formatCurrency(result.snapshot.portfolio.currentMonthlyNet)}</span> toward{" "}
+                        <span className="font-semibold text-emerald-600">{formatCurrency(result.analysis.advisorPlan?.potential.ifExecuted.projectedMonthlyNet ?? result.snapshot.portfolio.currentMonthlyNet + result.snapshot.portfolio.vacancyLossMonthly)}</span>,
+                        based only on visible vacancy upside and recorded expense opportunities.
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
 
               <div className="grid gap-5 lg:grid-cols-3">
-                {result.analysis.focusAreas.slice(0, 3).map((area) => (
-                  <Card key={area.title}>
+                {(result.analysis.advisorPlan?.priorities ?? result.analysis.focusAreas).slice(0, 3).map((area) => (
+                  <Card key={area.title} className="border-primary/10">
                     <CardHeader>
                       <div className="flex items-start justify-between gap-3">
                         <CardTitle className="text-base">{area.title}</CardTitle>
-                        <Badge variant={urgencyVariant(area.urgency)} className="capitalize">{area.urgency}</Badge>
+                        <Badge variant="secondary" className="capitalize">{"confidence" in area ? area.confidence : area.urgency}</Badge>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
+                      {"directive" in area && <p className="text-sm font-medium">{area.directive}</p>}
                       <p className="text-sm text-muted-foreground">{area.why}</p>
                       <p className="text-sm font-medium">{area.impact}</p>
+                      {"source" in area && <p className="text-xs text-muted-foreground">Source: {area.source}</p>}
                     </CardContent>
                   </Card>
                 ))}
@@ -493,86 +480,34 @@ export function PortfolioAnalyzerClient() {
                 </Card>
               </div>
 
-              {result.propertyAnalyses && result.propertyAnalyses.length > 0 && (
-                <div>
-                  <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
-                    <Building2 className="h-4 w-4" />
-                    Property Health Cards
-                  </h2>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {[...result.propertyAnalyses]
-                      .sort((a, b) => a.healthScore - b.healthScore)
-                      .map((pa) => {
-                        const detail = result.snapshot.propertyDetails?.find((d) => d.id === pa.propertyId);
-                        const scoreColor = pa.healthScore >= 80 ? "text-emerald-600" : pa.healthScore >= 60 ? "text-amber-600" : "text-red-600";
-                        const scoreBg = pa.healthScore >= 80 ? "bg-emerald-500/10 border-emerald-200" : pa.healthScore >= 60 ? "bg-amber-500/10 border-amber-200" : "bg-red-500/10 border-red-200";
-                        const noi = detail && detail.monthlyExpenses !== null ? detail.monthlyRentRoll - detail.monthlyExpenses : null;
-                        return (
-                          <Card key={pa.propertyId} className="flex flex-col">
-                            <CardHeader className="pb-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <CardTitle className="text-sm font-semibold truncate">{pa.propertyName}</CardTitle>
-                                  {detail && <p className="text-xs text-muted-foreground truncate mt-0.5">{detail.address}</p>}
-                                </div>
-                                <div className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${scoreBg} ${scoreColor}`}>
-                                  {pa.healthScore}
-                                </div>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-3 flex-1">
-                              {detail && (
-                                <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/20 p-2.5 text-xs">
-                                  <div className="text-center">
-                                    <p className="text-muted-foreground">Rent</p>
-                                    <p className="font-semibold">{formatCurrency(detail.monthlyRentRoll)}</p>
-                                  </div>
-                                  <div className="text-center">
-                                    <p className="text-muted-foreground">Expenses</p>
-                                    <p className="font-semibold">{detail.monthlyExpenses !== null ? formatCurrency(detail.monthlyExpenses) : "—"}</p>
-                                  </div>
-                                  <div className="text-center">
-                                    <p className="text-muted-foreground">NOI</p>
-                                    <p className={`font-semibold ${noi !== null ? (noi >= 0 ? "text-emerald-600" : "text-red-600") : ""}`}>
-                                      {noi !== null ? formatCurrency(noi) : "—"}
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
-                              <p className="text-xs text-muted-foreground italic">{pa.summary}</p>
-                              {pa.issues.length > 0 && (
-                                <div>
-                                  <p className="text-xs font-medium text-red-600 mb-1">Issues</p>
-                                  <ul className="space-y-1">
-                                    {pa.issues.map((issue) => (
-                                      <li key={issue} className="flex gap-2 text-xs text-muted-foreground">
-                                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-red-500" />
-                                        <span>{issue}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {pa.opportunities.length > 0 && (
-                                <div>
-                                  <p className="text-xs font-medium text-emerald-600 mb-1">Opportunities</p>
-                                  <ul className="space-y-1">
-                                    {pa.opportunities.map((opp) => (
-                                      <li key={opp} className="flex gap-2 text-xs text-muted-foreground">
-                                        <TrendingUp className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
-                                        <span>{opp}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Data confidence</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {result.analysis.advisorPlan?.dataWarnings.length ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-500/5 p-3 text-sm text-amber-800">
+                      {result.analysis.advisorPlan.dataWarnings[0]}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                      No major missing-data warnings in the current snapshot.
+                    </div>
+                  )}
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {Object.entries(result.analysis.advisorPlan?.dataConfidence ?? result.snapshot.dataSources ?? {}).map(([key, value]) => (
+                      <div key={key} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium capitalize">{categoryLabel(key)}</p>
+                          <Badge variant={value.confidence === "high" ? "secondary" : "outline"} className="capitalize">{value.confidence}</Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">{value.source}</p>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              )}
+                </CardContent>
+              </Card>
+
             </>
           )}
         </section>

@@ -1,8 +1,230 @@
 import { prisma } from "@/lib/prisma";
 import { addDays } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
+import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 
 type ToolInput = Record<string, unknown>;
+
+function money(value: unknown) {
+  return Number(value ?? 0);
+}
+
+function median(values: number[]) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
+function periodKey(date: Date) {
+  return { year: date.getFullYear(), month: date.getMonth() + 1 };
+}
+
+async function buildAssistantFinancialSnapshot(organizationId: string) {
+  const now = new Date();
+  const currentPeriod = periodKey(now);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const trailingStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+  const [properties, activeLeases, transactions, openMaintenance] = await Promise.all([
+    prisma.property.findMany({
+      where: { organizationId, archivedAt: null },
+      include: {
+        expenses: true,
+        units: {
+          include: {
+            leases: {
+              orderBy: { startDate: "desc" },
+              include: { tenants: { include: { tenant: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] } },
+            },
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.lease.findMany({
+      where: { organizationId, status: "active" },
+      include: {
+        rentPayments: true,
+        transactions: true,
+        unit: { include: { property: true } },
+        tenants: { include: { tenant: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
+      },
+    }),
+    prisma.transaction.findMany({
+      where: { organizationId, date: { gte: trailingStart } },
+      include: { property: { select: { id: true, name: true } } },
+      orderBy: { date: "desc" },
+    }),
+    prisma.maintenanceRequest.findMany({
+      where: { organizationId, status: { in: ["open", "in_progress", "pending_parts"] } },
+      include: { property: true, unit: true },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+      take: 15,
+    }),
+  ]);
+
+  const allUnits = properties.flatMap((property) =>
+    property.units.map((unit) => {
+      const activeLease = unit.leases.find((lease) => lease.status === "active");
+      const lastLease = unit.leases.find((lease) => lease.status !== "active");
+      return { property, unit, activeLease, lastLease };
+    }),
+  );
+
+  const occupiedUnits = allUnits.filter((row) => row.activeLease);
+  const vacantUnits = allUnits.filter((row) => !row.activeLease);
+  const activeRents = occupiedUnits.map((row) => money(row.activeLease?.rentAmount)).filter((rent) => rent > 0);
+  const portfolioMedianRent = median(activeRents);
+
+  const vacancies = vacantUnits.map((row) => {
+    const samePropertyRents = occupiedUnits
+      .filter((occupied) => occupied.property.id === row.property.id)
+      .map((occupied) => money(occupied.activeLease?.rentAmount))
+      .filter((rent) => rent > 0);
+    const projectedRent = median(samePropertyRents) || money(row.lastLease?.rentAmount) || portfolioMedianRent;
+    return {
+      propertyId: row.property.id,
+      unitId: row.unit.id,
+      propertyName: row.property.name,
+      unitNumber: row.unit.unitNumber,
+      projectedRent: Math.round(projectedRent),
+      source: samePropertyRents.length ? "median active rent in same property" : row.lastLease ? "prior lease rent" : "portfolio median active rent",
+    };
+  }).sort((a, b) => b.projectedRent - a.projectedRent);
+
+  const rentRoll = activeLeases.reduce((sum, lease) => sum + money(lease.rentAmount), 0);
+  const potentialRentRoll = rentRoll + vacancies.reduce((sum, vacancy) => sum + vacancy.projectedRent, 0);
+
+  const rentCollectedMonth = activeLeases.flatMap((lease) => lease.rentPayments)
+    .filter((payment) => payment.periodYear === currentPeriod.year && payment.periodMonth === currentPeriod.month)
+    .reduce((sum, payment) => sum + Math.max(0, money(payment.amountPaid)), 0);
+  const rentCollectedTrailing12 = activeLeases.flatMap((lease) => lease.rentPayments)
+    .filter((payment) => {
+      const date = new Date(payment.periodYear, payment.periodMonth - 1, 1);
+      return date >= trailingStart && date <= now;
+    })
+    .reduce((sum, payment) => sum + Math.max(0, money(payment.amountPaid)), 0);
+
+  const isNonRentIncome = (transaction: { type: string; category: string }) =>
+    transaction.type === "income" && transaction.category !== "rent";
+  const otherIncomeMonth = transactions
+    .filter((transaction) => isNonRentIncome(transaction) && transaction.date >= startOfMonth)
+    .reduce((sum, transaction) => sum + money(transaction.amount), 0);
+  const otherIncomeTrailing12 = transactions
+    .filter(isNonRentIncome)
+    .reduce((sum, transaction) => sum + money(transaction.amount), 0);
+  const expensesMonth = transactions
+    .filter((transaction) => transaction.type === "expense" && transaction.date >= startOfMonth)
+    .reduce((sum, transaction) => sum + money(transaction.amount), 0);
+  const expensesTrailing12 = transactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((sum, transaction) => sum + money(transaction.amount), 0);
+
+  const outstandingTenants = activeLeases.map((lease) => {
+    const tenant = lease.tenants[0]?.tenant;
+    const balance = calculateLeaseOutstandingBalance({
+      rentPayments: lease.rentPayments,
+      transactions: lease.transactions,
+    });
+    return {
+      tenantId: tenant?.id ?? null,
+      leaseId: lease.id,
+      tenantName: tenant ? `${tenant.firstName} ${tenant.lastName}` : "Unknown tenant",
+      propertyName: lease.unit.property.name,
+      unitNumber: lease.unit.unitNumber,
+      balance: Math.round(balance * 100) / 100,
+    };
+  }).filter((row) => row.balance > 0).sort((a, b) => b.balance - a.balance);
+
+  const knownMonthlyPropertyExpenses = properties.reduce((sum, property) => {
+    const exp = property.expenses;
+    if (!exp) return sum;
+    return sum + [
+      exp.propertyTaxMonthly,
+      exp.waterSewerMonthly,
+      exp.electricityMonthly,
+      exp.gasMonthly,
+      exp.insuranceMonthly,
+      exp.mortgageMonthly,
+      exp.hoaMonthly,
+      exp.otherMonthly,
+    ].reduce((inner, value) => inner + money(value), 0);
+  }, 0);
+
+  const expensesByCategory = Object.values(transactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce<Record<string, { category: string; amount: number }>>((acc, transaction) => {
+      acc[transaction.category] ??= { category: transaction.category, amount: 0 };
+      acc[transaction.category].amount += money(transaction.amount);
+      return acc;
+    }, {}))
+    .sort((a, b) => b.amount - a.amount);
+
+  const missingExpenseProperties = properties
+    .filter((property) => !property.expenses)
+    .map((property) => property.name);
+
+  return {
+    asOf: now.toISOString(),
+    units: {
+      total: allUnits.length,
+      occupied: occupiedUnits.length,
+      vacant: vacancies.length,
+      occupancyRate: allUnits.length ? Math.round((occupiedUnits.length / allUnits.length) * 100) : 0,
+    },
+    rent: {
+      currentMonthlyRentRoll: Math.round(rentRoll),
+      potentialMonthlyRentRoll: Math.round(potentialRentRoll),
+      vacancyLossMonthly: Math.round(potentialRentRoll - rentRoll),
+      vacancyLossAnnual: Math.round((potentialRentRoll - rentRoll) * 12),
+      rentCollectedThisMonth: Math.round(rentCollectedMonth),
+      rentCollectedTrailing12: Math.round(rentCollectedTrailing12),
+      otherIncomeThisMonth: Math.round(otherIncomeMonth),
+      otherIncomeTrailing12: Math.round(otherIncomeTrailing12),
+    },
+    expenses: {
+      recordedThisMonth: Math.round(expensesMonth),
+      recordedTrailing12: Math.round(expensesTrailing12),
+      knownMonthlyPropertyExpenses: Math.round(knownMonthlyPropertyExpenses),
+      topCategories: expensesByCategory.slice(0, 6).map((row) => ({ category: row.category, amount: Math.round(row.amount) })),
+      missingExpenseProperties,
+    },
+    cashFlow: {
+      currentMonthNetFromRecordedActivity: Math.round(rentCollectedMonth + otherIncomeMonth - expensesMonth),
+      trailing12NetFromRecordedActivity: Math.round(rentCollectedTrailing12 + otherIncomeTrailing12 - expensesTrailing12),
+    },
+    collections: {
+      outstandingBalance: Math.round(outstandingTenants.reduce((sum, row) => sum + row.balance, 0) * 100) / 100,
+      tenantCount: outstandingTenants.length,
+      tenants: outstandingTenants.slice(0, 15),
+    },
+    vacancies: vacancies.slice(0, 15),
+    maintenance: {
+      openCount: openMaintenance.length,
+      items: openMaintenance.slice(0, 8).map((item) => ({
+        id: item.id,
+        propertyName: item.property.name,
+        unitNumber: item.unit?.unitNumber ?? null,
+        title: item.title,
+        priority: item.priority,
+        status: item.status,
+        estimatedCost: money(item.estimatedCost),
+      })),
+    },
+    dataSources: [
+      "Lease.rentAmount for current rent roll",
+      "RentPayment.amountPaid for collected rent",
+      "Transaction records for non-rent income and expenses",
+      "PropertyExpenses only where user-entered recurring expenses exist",
+      "Shared rent-ledger helper for outstanding balances",
+    ],
+    warnings: [
+      ...(missingExpenseProperties.length ? [`${missingExpenseProperties.length} properties have no recurring expense profile.`] : []),
+      ...(transactions.length === 0 ? ["No trailing-12 transaction records were found, so expense and cash-flow analysis is incomplete."] : []),
+    ],
+  };
+}
 
 export async function handleTool(
   name: string,
@@ -74,7 +296,15 @@ export async function handleTool(
         },
         include: {
           leaseLinks: {
-            include: { lease: { include: { rentPayments: { orderBy: { dueDate: "desc" }, take: 6 } } } },
+            include: {
+              lease: {
+                include: {
+                  rentPayments: { orderBy: { dueDate: "desc" } },
+                  transactions: { orderBy: { date: "desc" } },
+                  unit: { include: { property: true } },
+                },
+              },
+            },
           },
         },
       });
@@ -82,19 +312,85 @@ export async function handleTool(
       const lease = tenant.leaseLinks[0]?.lease;
       if (!lease) return `${tenant.firstName} ${tenant.lastName} has no active lease.`;
       const payments = lease.rentPayments;
-      const overdue = payments.filter((p) => p.status === "overdue");
-      const totalOverdue = overdue.reduce((s, p) => s + (Number(p.amountDue) - Number(p.amountPaid)), 0);
+      const outstandingBalance = calculateLeaseOutstandingBalance({
+        rentPayments: lease.rentPayments,
+        transactions: lease.transactions,
+      });
       return [
         `**${tenant.firstName} ${tenant.lastName}**`,
+        `Location: ${lease.unit.property.name} unit ${lease.unit.unitNumber}`,
         `Monthly rent: ${formatCurrency(Number(lease.rentAmount))}`,
-        `Total overdue balance: ${formatCurrency(totalOverdue)}`,
+        `Outstanding balance: ${formatCurrency(outstandingBalance)}`,
+        `Balance source: shared rent-ledger calculation, including imported ledger running balances when available.`,
         `Recent payments:`,
-        ...payments.map((p) => `  ${p.periodYear}-${String(p.periodMonth).padStart(2, "0")}: ${p.status} (paid ${formatCurrency(Number(p.amountPaid))} of ${formatCurrency(Number(p.amountDue))})`),
+        ...payments.slice(0, 6).map((p) => `  ${p.periodYear}-${String(p.periodMonth).padStart(2, "0")}: ${p.status} (paid ${formatCurrency(Number(p.amountPaid))} of ${formatCurrency(Number(p.amountDue))})`),
       ].join("\n");
     }
 
     // ── READ: overdue payments ───────────────────────────────────────────────
     case "get_overdue_payments": {
+      const leases = await prisma.lease.findMany({
+        where: { organizationId, status: "active" },
+        include: {
+          rentPayments: true,
+          transactions: true,
+          tenants: { include: { tenant: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
+          unit: { include: { property: true } },
+        },
+      });
+      const overdue = leases.map((lease) => {
+        const tenant = lease.tenants[0]?.tenant;
+        const balance = calculateLeaseOutstandingBalance({ rentPayments: lease.rentPayments, transactions: lease.transactions });
+        return { lease, tenant, balance };
+      }).filter((row) => row.tenant && row.balance > 0).sort((a, b) => b.balance - a.balance);
+      if (!overdue.length) return "No tenant balances due. All visible active leases are current.";
+      const total = overdue.reduce((sum, row) => sum + row.balance, 0);
+      return [
+        `Total outstanding balance: ${formatCurrency(total)} across ${overdue.length} tenant${overdue.length === 1 ? "" : "s"}.`,
+        ...overdue.map((row) => {
+          const tenant = row.tenant;
+          return `- [${tenant?.id}] ${tenant?.firstName} ${tenant?.lastName} - ${row.lease.unit.property.name} unit ${row.lease.unit.unitNumber} - Owes ${formatCurrency(row.balance)}`;
+        }),
+        `Source: shared rent-ledger calculation, not only RentPayment.status.`,
+      ].join("\n");
+    }
+
+    case "get_portfolio_financial_snapshot": {
+      return JSON.stringify(await buildAssistantFinancialSnapshot(organizationId), null, 2);
+    }
+
+    case "calculate_income_scenario": {
+      const snapshot = await buildAssistantFinancialSnapshot(organizationId);
+      const fillCount = input.includeAllVacancies
+        ? snapshot.vacancies.length
+        : Math.max(0, Math.min(snapshot.vacancies.length, Math.floor(Number(input.fillVacancies ?? 0))));
+      const filledVacancies = snapshot.vacancies.slice(0, fillCount);
+      const vacancyMonthlyUpside = filledVacancies.reduce((sum, vacancy) => sum + vacancy.projectedRent, 0);
+      const additionalMonthlyRent = Math.max(0, Number(input.additionalMonthlyRent ?? 0));
+      const monthlyExpenseReduction = Math.max(0, Number(input.monthlyExpenseReduction ?? 0));
+      const collectionTarget = input.collectAllOutstanding
+        ? snapshot.collections.outstandingBalance
+        : Math.max(0, Number(input.collectionTarget ?? 0));
+      const recurringUpside = vacancyMonthlyUpside + additionalMonthlyRent + monthlyExpenseReduction;
+      const projectedMonthlyRentRoll = snapshot.rent.currentMonthlyRentRoll + vacancyMonthlyUpside + additionalMonthlyRent;
+      const projectedMonthlyNet = snapshot.cashFlow.currentMonthNetFromRecordedActivity + recurringUpside;
+
+      return [
+        `Current monthly rent roll: ${formatCurrency(snapshot.rent.currentMonthlyRentRoll)}.`,
+        `Projected monthly rent roll: ${formatCurrency(projectedMonthlyRentRoll)}.`,
+        `Monthly upside: ${formatCurrency(recurringUpside)}.`,
+        `Annual recurring upside: ${formatCurrency(recurringUpside * 12)}.`,
+        `Current recorded monthly net: ${formatCurrency(snapshot.cashFlow.currentMonthNetFromRecordedActivity)}.`,
+        `Projected recorded monthly net: ${formatCurrency(projectedMonthlyNet)}.`,
+        collectionTarget > 0 ? `One-time collections opportunity included separately: ${formatCurrency(Math.min(collectionTarget, snapshot.collections.outstandingBalance))}.` : null,
+        filledVacancies.length
+          ? `Vacancies filled in this scenario: ${filledVacancies.map((vacancy) => `${vacancy.propertyName} unit ${vacancy.unitNumber} at about ${formatCurrency(vacancy.projectedRent)}`).join("; ")}.`
+          : `No vacancy fill was included in this scenario.`,
+        `Sources: current active leases, vacant units, RentPayment.amountPaid, Transaction expenses, and shared ledger balances. Projections use existing rent data only.`,
+      ].filter(Boolean).join("\n");
+    }
+
+    case "__legacy_get_overdue_payments": {
       const payments = await prisma.rentPayment.findMany({
         where: { organizationId, status: "overdue" },
         include: { lease: { include: { tenants: { include: { tenant: true } }, unit: { include: { property: true } } } } },
@@ -149,15 +445,35 @@ export async function handleTool(
       const month = (input.month as number) ?? now.getMonth() + 1;
       const start = new Date(year, month - 1, 1);
       const end = new Date(year, month, 0, 23, 59, 59);
-      const transactions = await prisma.transaction.groupBy({
-        by: ["type"],
-        where: { organizationId, date: { gte: start, lte: end } },
-        _sum: { amount: true },
-      });
-      const income = transactions.find((t) => t.type === "income")?._sum.amount ?? 0;
-      const expenses = transactions.find((t) => t.type === "expense")?._sum.amount ?? 0;
-      const net = Number(income) - Number(expenses);
-      return `**${year}-${String(month).padStart(2, "0")} Financial Summary**\nIncome: ${formatCurrency(Number(income))}\nExpenses: ${formatCurrency(Number(expenses))}\nNet: ${formatCurrency(net)}`;
+      const snapshot = await buildAssistantFinancialSnapshot(organizationId);
+      const [rentPayments, transactions] = await Promise.all([
+        prisma.rentPayment.findMany({
+          where: { organizationId, periodYear: year, periodMonth: month },
+        }),
+        prisma.transaction.findMany({
+          where: { organizationId, date: { gte: start, lte: end } },
+        }),
+      ]);
+      const rentCollected = rentPayments.reduce((sum, payment) => sum + Math.max(0, money(payment.amountPaid)), 0);
+      const otherIncome = transactions
+        .filter((transaction) => transaction.type === "income" && transaction.category !== "rent")
+        .reduce((sum, transaction) => sum + money(transaction.amount), 0);
+      const expenses = transactions
+        .filter((transaction) => transaction.type === "expense")
+        .reduce((sum, transaction) => sum + money(transaction.amount), 0);
+      const income = rentCollected + otherIncome;
+      const net = income - expenses;
+      return [
+        `**${year}-${String(month).padStart(2, "0")} Financial Summary**`,
+        `Collected rent: ${formatCurrency(rentCollected)}`,
+        `Other income: ${formatCurrency(otherIncome)}`,
+        `Recorded expenses: ${formatCurrency(expenses)}`,
+        `Net from recorded activity: ${formatCurrency(net)}`,
+        `Current monthly rent roll: ${formatCurrency(snapshot.rent.currentMonthlyRentRoll)}`,
+        `Potential rent roll if all vacancies are filled: ${formatCurrency(snapshot.rent.potentialMonthlyRentRoll)}`,
+        `Outstanding tenant balances: ${formatCurrency(snapshot.collections.outstandingBalance)}`,
+        `Source: RentPayment.amountPaid for collected rent, Transaction records for non-rent income and expenses, shared ledger balances for balances due.`,
+      ].join("\n");
     }
 
     // ── READ: lease details ───────────────────────────────────────────────────
@@ -292,6 +608,46 @@ export async function handleTool(
     }
 
     // ── WRITE: create property ────────────────────────────────────────────────
+    case "delete_tenant": {
+      const tenantId = input.tenantId as string;
+      const existing = await prisma.tenant.findFirst({
+        where: { id: tenantId, organizationId },
+        include: {
+          leaseLinks: { include: { lease: { include: { unit: { include: { property: true } } } } } },
+        },
+      });
+      if (!existing) return `Tenant not found: ${tenantId}`;
+      const activeLinks = existing.leaseLinks.filter((link) => link.lease.status === "active");
+      if (activeLinks.length && input.force !== true) {
+        return [
+          `${existing.firstName} ${existing.lastName} has ${activeLinks.length} active lease link${activeLinks.length === 1 ? "" : "s"}.`,
+          `I did not delete the tenant. If you really want to remove this tenant and unlink active leases, say that explicitly.`,
+          ...activeLinks.map((link) => `- Lease ${link.lease.id}: ${link.lease.unit.property.name} unit ${link.lease.unit.unitNumber}`),
+        ].join("\n");
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.application.updateMany({
+          where: { organizationId, convertedTenantId: tenantId },
+          data: { convertedTenantId: null },
+        });
+        await tx.leaseTenant.deleteMany({ where: { tenantId } });
+        await tx.portalSession.deleteMany({ where: { tenantId } });
+        await tx.tenant.delete({ where: { id: tenantId } });
+        await tx.activityEvent.create({
+          data: {
+            organizationId,
+            actorId: userId,
+            entityType: "tenant",
+            entityId: tenantId,
+            eventType: "deleted",
+            metadata: { name: `${existing.firstName} ${existing.lastName}`, actor: "ai_assistant" },
+          },
+        });
+      });
+      return `Tenant deleted: **${existing.firstName} ${existing.lastName}**.`;
+    }
+
     case "create_property": {
       const unitCount = Math.max(1, (input.unitCount as number) ?? 1);
       const property = await prisma.property.create({
@@ -403,13 +759,112 @@ export async function handleTool(
     }
 
     // ── WRITE: record payment (confirmation required) ─────────────────────────
-    case "record_payment": {
+    case "__legacy_record_payment": {
       return JSON.stringify({
         __pendingAction: true,
         type: "record_payment",
         payload: input,
         message: `Ready to record payment of ${formatCurrency(input.amount as number)} from ${input.tenantName}. Please confirm.`,
       });
+    }
+
+    case "record_payment": {
+      const tenantName = input.tenantName as string;
+      const [firstName, ...lastParts] = tenantName.split(" ");
+      const lastName = lastParts.join(" ");
+      const tenant = await prisma.tenant.findFirst({
+        where: {
+          organizationId,
+          OR: [
+            { firstName: { contains: tenantName, mode: "insensitive" } },
+            { lastName: { contains: tenantName, mode: "insensitive" } },
+            { AND: [{ firstName: { contains: firstName, mode: "insensitive" } }, { lastName: { contains: lastName, mode: "insensitive" } }] },
+          ],
+        },
+        include: {
+          leaseLinks: {
+            where: { lease: { status: "active" } },
+            include: { lease: { include: { unit: { include: { property: true } } } } },
+          },
+        },
+      });
+      if (!tenant) return `No tenant found matching "${tenantName}".`;
+      const lease = tenant.leaseLinks[0]?.lease;
+      if (!lease) return `${tenant.firstName} ${tenant.lastName} has no active lease, so I could not record rent.`;
+
+      const now = new Date();
+      const periodYear = Number(input.periodYear ?? now.getFullYear());
+      const periodMonth = Number(input.periodMonth ?? now.getMonth() + 1);
+      const dueDate = new Date(periodYear, periodMonth - 1, lease.paymentDueDay);
+      const amountPaid = Number(input.amount ?? 0);
+      if (amountPaid <= 0) return "Payment amount must be greater than zero.";
+
+      const existingPayment = await prisma.rentPayment.findUnique({
+        where: { leaseId_periodYear_periodMonth: { leaseId: lease.id, periodYear, periodMonth } },
+      });
+      const amountDue = money(existingPayment?.amountDue ?? lease.rentAmount);
+      const newPaidTotal = money(existingPayment?.amountPaid) + amountPaid;
+      let status = "pending";
+      if (newPaidTotal >= amountDue) status = "paid";
+      else if (newPaidTotal > 0) status = "partial";
+      else if (dueDate < new Date()) status = "overdue";
+
+      const payment = await prisma.$transaction(async (tx) => {
+        const saved = await tx.rentPayment.upsert({
+          where: { leaseId_periodYear_periodMonth: { leaseId: lease.id, periodYear, periodMonth } },
+          update: {
+            amountPaid: newPaidTotal,
+            status,
+            paidAt: new Date(),
+            paymentMethod: (input.method as string) || undefined,
+            notes: (input.notes as string) || undefined,
+            recordedById: userId,
+          },
+          create: {
+            organizationId,
+            leaseId: lease.id,
+            periodYear,
+            periodMonth,
+            amountDue,
+            amountPaid,
+            status,
+            dueDate,
+            paidAt: new Date(),
+            paymentMethod: (input.method as string) || undefined,
+            notes: (input.notes as string) || undefined,
+            recordedById: userId,
+          },
+        });
+        await tx.transaction.create({
+          data: {
+            organizationId,
+            leaseId: lease.id,
+            propertyId: lease.unit.property.id,
+            unitId: lease.unit.id,
+            type: "income",
+            category: "rent",
+            amount: amountPaid,
+            date: new Date(),
+            description: `Rent payment ${periodYear}-${String(periodMonth).padStart(2, "0")} - ${tenant.firstName} ${tenant.lastName}`,
+            paymentMethod: (input.method as string) || undefined,
+            referenceId: saved.id,
+            createdById: userId,
+          },
+        });
+        await tx.activityEvent.create({
+          data: {
+            organizationId,
+            actorId: userId,
+            entityType: "payment",
+            entityId: saved.id,
+            eventType: "payment_recorded",
+            metadata: { amount: amountPaid, status, period: `${periodYear}-${periodMonth}`, actor: "ai_assistant" },
+          },
+        });
+        return saved;
+      });
+
+      return `Recorded ${formatCurrency(amountPaid)} rent payment from **${tenant.firstName} ${tenant.lastName}** for ${periodYear}-${String(periodMonth).padStart(2, "0")}. Total paid for that period is now ${formatCurrency(Number(payment.amountPaid))}; status is ${payment.status}.`;
     }
 
     // ── WRITE: send message ───────────────────────────────────────────────────
