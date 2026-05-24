@@ -2,8 +2,8 @@ import { timingSafeEqual } from 'crypto';
 import type { NextRequest } from 'next/server';
 
 export function verifyMoraServiceKey(request: NextRequest): boolean {
-  const provided = request.headers.get('x-mora-key');
-  const expected = process.env.MORA_SERVICE_API_KEY;
+  const provided = request.headers.get('x-mora-key')?.trim();
+  const expected = process.env.MORA_SERVICE_API_KEY?.trim();
   if (!provided || !expected) return false;
   try {
     const a = Buffer.from(provided);

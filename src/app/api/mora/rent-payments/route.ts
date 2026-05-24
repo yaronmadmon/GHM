@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+﻿import { NextRequest } from 'next/server';
 import { moraServiceGuard } from '@/lib/service-auth';
 import { prisma } from '@/lib/prisma';
 
@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   const guard = moraServiceGuard(request);
   if (guard) return guard;
 
-  const orgId = process.env.MORA_SERVICE_ORG_ID;
+  const orgId = process.env.MORA_SERVICE_ORG_ID?.trim();
   if (!orgId) {
     return Response.json({ error: 'MORA_SERVICE_ORG_ID not configured on this server' }, { status: 500 });
   }
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       const property = unit?.property;
       const unitLabel =
         property && unit
-          ? `${property.name} — Unit ${unit.unitNumber}`
+          ? `${property.name} â€” Unit ${unit.unitNumber}`
           : property?.name ?? 'Unknown Property';
 
       const daysOverdue =
