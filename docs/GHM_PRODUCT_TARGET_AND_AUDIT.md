@@ -1,62 +1,214 @@
-# GHM Product Target, Audit Reference & High-Value Workflow Roadmap
+# GHM Agentic Product Loop, Audit Reference & Build Roadmap
 
-This document is the working reference for Claude Code and any AI/code editor working on GHM.
+This file is the operating document for Claude Code and any AI/code editor working on GHM.
 
-Use this as the product north star, audit checklist, and implementation guide.
+It is not only a product description. It is an agentic loop: Claude should use this file to repeatedly audit, plan, implement, test, update status, and continue until the approved scope is complete.
 
-The goal is not to copy large enterprise systems like AppFolio, Buildium, Rent Manager, or DoorLoop in a deep and complicated way. The goal is to adapt the highest-value workflows from those systems into a clean, friendly, efficient, AI-assisted property management app.
+GHM is an AI-powered property management SaaS for landlords and small-to-mid-size management companies. It should stay clean, friendly, efficient, and comprehensive without becoming AppFolio-level complicated.
 
-GHM should stay simple enough for small landlords, but powerful enough for a small-to-mid-size management company.
+The main product direction is:
 
----
-
-# 1. Product Vision
-
-GHM is an AI-powered property management SaaS for landlords and small-to-mid-size management companies.
-
-The app should simplify daily operations by combining traditional property management tools with an AI office assistant.
-
-GHM should help users manage:
-
-- Properties
-- Units
-- Tenants
-- Applicants
-- Leases
-- Rent payments
-- Late fees
-- Security deposits
-- Maintenance requests
-- Vendors
-- Bills
-- Receipts
-- Invoices
-- Legal/court documents
-- Financial records
-- Messages
-- Notices
-- Tenant portal activity
-- Documents and files
-- Tasks and follow-ups
-- Lease renewals
-- Move-outs
-- Inspections
-- Work orders
-- Owner/property reports if needed
-
-The larger goal is to make GHM feel like an AI-powered management office.
-
-The user should be able to upload information, speak to the AI, take a picture of a bill, ask questions, generate summaries, record payments, file documents, create charges, review tasks, and organize property operations without manually digging through folders and screens.
+1. Core property management must work reliably.
+2. AI should reduce manual work.
+3. Documents, bills, charges, maintenance, rent, notices, and daily tasks should be organized around real landlord workflows.
+4. The app should feel like an AI-powered management office.
 
 ---
 
-# 2. Core Product Principle
+# 1. Agentic Operating Rule
 
-GHM should not just store data.
+Claude Code should not treat this as a one-time checklist.
 
-GHM should actively help the landlord or management company operate.
+Claude Code should operate in cycles:
 
-The AI should help answer:
+```txt
+READ → AUDIT → CLASSIFY → PLAN → IMPLEMENT SMALL BATCH → TEST → UPDATE THIS FILE → REPEAT
+```
+
+The loop continues until one of these stop conditions is reached:
+
+- All approved priority items are marked `Done`.
+- A blocking issue requires user approval.
+- A database migration, destructive refactor, payment/legal/security decision, or major architecture decision requires confirmation.
+- Tests/build cannot pass after reasonable fixes and the blocker must be reported.
+
+Claude should not wander into random features. Every action must connect back to this file.
+
+---
+
+# 2. Agentic Loop Steps
+
+## Step 1 — Read
+
+Before making changes, Claude must read:
+
+- `docs/GHM_PRODUCT_TARGET_AND_AUDIT.md`
+- Prisma schema
+- relevant routes
+- relevant components/pages
+- AI tools and handlers
+- package scripts
+- existing migrations if needed
+
+## Step 2 — Audit
+
+Claude must inspect the current repo and classify each feature as:
+
+- `Done`
+- `Built but needs testing`
+- `Partially built`
+- `Broken`
+- `Missing`
+- `Schema only`
+- `UI only`
+- `API only`
+- `Needs wiring`
+- `Blocked`
+
+A feature is only `Done` if database, API, UI, permissions, and user flow are connected.
+
+## Step 3 — Classify Risk
+
+For every issue, assign:
+
+- `P0 Critical` — app/security/data corruption/build broken
+- `P1 Core` — major core workflow broken or incomplete
+- `P2 High Value` — important product workflow
+- `P3 Polish` — UX cleanup or nice-to-have
+
+## Step 4 — Plan Small Batch
+
+Claude should select one small batch at a time.
+
+Rules:
+
+- Prefer fixing broken existing features before new features.
+- Prefer completing partial features before creating new systems.
+- Avoid massive rewrites.
+- Avoid duplicate models/routes.
+- Keep changes easy to review.
+
+## Step 5 — Implement
+
+Implement only the selected batch.
+
+Claude should:
+
+- Follow existing project patterns.
+- Preserve org scoping.
+- Preserve tenant portal isolation.
+- Avoid double-counting rent/payments/transactions.
+- Avoid silently posting financial or legal actions.
+- Require user review for risky AI suggestions.
+
+## Step 6 — Test
+
+Before marking anything done, Claude should run/check:
+
+- TypeScript
+- Build
+- Prisma generate
+- route compile
+- UI load where practical
+- API auth/org scoping
+- tenant portal isolation
+- AI tool definitions match handlers
+- no duplicate financial records
+- empty/error states
+
+If a test cannot run, Claude must state why and mark as `Needs testing`, not `Done`.
+
+## Step 7 — Update This File
+
+After every batch, Claude must update the status tables in this file.
+
+Do not leave this file stale.
+
+Update:
+
+- feature status
+- completed work
+- remaining issues
+- blockers
+- next recommended batch
+
+## Step 8 — Repeat
+
+Claude should continue the loop using the next highest-priority item.
+
+---
+
+# 3. Human Approval Gates
+
+Claude must pause and ask before:
+
+- destructive database migrations
+- deleting data/models/routes
+- changing auth/security architecture
+- changing tenant portal access rules
+- enabling automatic financial posting
+- enabling live Stripe/ACH payments
+- sending real emails/SMS/notices automatically
+- changing legal/court notice logic
+- major UI redesigns that affect the whole app
+- replacing an existing feature instead of improving it
+
+Claude may proceed without asking for:
+
+- audits
+- status updates
+- small bug fixes
+- wiring missing handlers
+- improving empty states
+- fixing TypeScript/build errors
+- adding non-destructive UI around existing data
+- adding review-before-commit flows
+
+---
+
+# 4. Product Style Rule
+
+GHM must remain:
+
+- clean
+- friendly
+- simple to understand
+- fast to operate
+- comprehensive where it matters
+- not bloated
+- not enterprise-heavy
+- not confusing
+
+Do not copy AppFolio complexity. Adapt the workflow value only.
+
+Every feature should answer:
+
+> Does this help the user manage properties faster, cleaner, and with less stress?
+
+---
+
+# 5. Main Product Pillars
+
+## Pillar 1 — Core Management
+
+Reliable management of:
+
+- properties
+- units
+- tenants
+- leases
+- rent payments
+- maintenance
+- vendors
+- applications
+- messages
+- notifications
+- tenant portal
+- financial transactions
+
+## Pillar 2 — AI Management Office
+
+AI should help answer:
 
 - What needs to be paid?
 - What needs to be billed?
@@ -67,1302 +219,367 @@ The AI should help answer:
 - Which bills are due?
 - Which documents are missing?
 - Where should this uploaded document go?
-- What does this bill belong to?
-- What needs follow-up today?
-- What can be filed automatically?
-- What needs human review?
 - What should I do next?
 
-The app should reduce confusion, reduce manual entry, and keep everything organized by property, unit, tenant, lease, maintenance request, transaction, application, vendor, and document.
+## Pillar 3 — Smart Document Center
+
+The user can upload or take a picture of a bill/document, AI classifies it, extracts details, suggests where it belongs, and files it after review.
+
+## Pillar 4 — Money Workflows
+
+The app should clearly separate:
+
+- rent payments
+- tenant charges
+- bills/payables
+- expenses
+- owner/property reporting
+- court/ledger outputs
+
+## Pillar 5 — Daily Operations
+
+The app should guide daily work through:
+
+- Today’s Office
+- tasks/follow-ups
+- calendar
+- notices
+- renewals
+- move-outs
+- inspections
+- work orders
 
 ---
 
-# 3. Product Style Rule
+# 6. Current Feature Audit Matrix
 
-GHM must remain:
+Claude must update this table after every audit/build cycle.
 
-- Clean
-- Friendly
-- Simple to understand
-- Efficient
-- Comprehensive where it matters
-- Not bloated
-- Not enterprise-heavy
-- Not confusing
-
-Do not copy AppFolio-style complexity. Copy only the workflow value.
-
-Every feature should be designed around this question:
-
-> Does this help the user manage properties faster, cleaner, and with less stress?
-
-If the answer is no, do not build it yet.
-
----
-
-# 4. Existing Repo Review Reference
-
-Previous repo review confirmed that GHM already appears to include many core systems:
-
-- Multi-tenant organization structure
-- Landlord/staff users
-- Properties and units
-- Tenants
-- Leases
-- Rent payments
-- Late fee configuration
-- Maintenance requests
-- Vendors
-- Applications
-- Application documents
-- Lease documents
-- Landlord/tenant messaging
-- Notifications
-- Tenant portal sessions
-- Activity/audit events
-- AI chat assistant
-- AI tools for reading and writing property-management data
-- Smart import / AI migration for extracting tenant/rent/ledger information from PDFs, CSVs, Excel files, and screenshots
-- File upload/storage dependencies
-- Resend email support
-- Stripe dependency and Stripe-related payment fields
-
-Important correction from repo review:
-
-The AI assistant tool list appeared to contain around 30 tools, not only 24, based on `src/lib/ai/tools.ts` at the time of review.
-
-Claude Code must verify this again directly from the current repo.
+| Feature | Status | Evidence / Files | Missing or Broken | Next Action | Priority |
+|---|---|---|---|---|---|
+| Auth & Organizations | Unknown | TBD | TBD | Audit org scoping/auth routes | P0 |
+| Roles & Permissions | Unknown | TBD | TBD | Verify role enforcement | P1 |
+| Properties | Unknown | TBD | TBD | Audit CRUD/UI/status/photos | P1 |
+| Units | Unknown | TBD | TBD | Audit CRUD/status/photos | P1 |
+| Tenants | Unknown | TBD | TBD | Audit profile/ledger/docs | P1 |
+| Leases | Unknown | TBD | TBD | Audit CRUD/signing/move-in/docs | P1 |
+| Rent Payments | Unknown | TBD | TBD | Audit generation/manual/overdue/late fees | P1 |
+| Tenant Payment Requests | Unknown | TBD | TBD | Audit portal request + landlord confirm/reject | P1 |
+| Financial Transactions | Unknown | TBD | TBD | Audit P&L/cashflow/double-counting | P1 |
+| Maintenance | Unknown | TBD | TBD | Audit portal+landlord+photos+comments | P1 |
+| Vendors | Unknown | TBD | TBD | Audit CRUD/assignment/invoices | P2 |
+| Applications | Unknown | TBD | TBD | Audit public form/docs/conversion | P1 |
+| Messaging | Unknown | TBD | TBD | Audit landlord+portal/read/unread | P1 |
+| Notifications | Unknown | TBD | TBD | Audit bell/email/events | P2 |
+| Tenant Portal | Unknown | TBD | TBD | Audit isolation/session/payment/maintenance/messages | P0 |
+| AI Chat Assistant | Unknown | TBD | TBD | Verify tools and handlers | P1 |
+| Smart Import / AI Migration | Unknown | TBD | TBD | Audit extract/review/commit/conflicts | P1 |
+| Smart Document Center | Unknown | TBD | TBD | Verify if exists; complete or build | P1 |
+| Bills & Payables | Unknown | TBD | TBD | Add/audit bill workflow | P2 |
+| Tenant Charges / Receivables | Unknown | TBD | TBD | Add/audit tenant charge workflow | P2 |
+| Notices & Letters | Unknown | TBD | TBD | Add/audit templates + logging | P2 |
+| Work Orders | Unknown | TBD | TBD | Add/audit maintenance-to-work-order flow | P2 |
+| Inspections | Unknown | TBD | TBD | Add/audit move-in/out/annual inspections | P2 |
+| Move-Out Workflow | Unknown | TBD | TBD | Add/audit move-out/deposit flow | P2 |
+| Lease Renewal Workflow | Unknown | TBD | TBD | Add/audit renewal statuses/actions | P2 |
+| Court Packet Builder | Unknown | TBD | TBD | Add/audit export bundle | P2 |
+| Today’s Office | Unknown | TBD | TBD | Add/audit command center | P1 |
+| Tasks & Follow-Ups | Unknown | TBD | TBD | Add/audit task system | P2 |
+| Calendar | Unknown | TBD | TBD | Add/audit calendar events | P3 |
+| Universal Timeline | Unknown | TBD | TBD | Add/audit timeline per record | P2 |
+| Missing Documents Checklist | Unknown | TBD | TBD | Add/audit checklist system | P2 |
+| Owner Reports | Unknown | TBD | TBD | Add/audit light monthly statements | P3 |
+| Security & Privacy | Unknown | TBD | TBD | Audit sensitive file/data exposure | P0 |
 
 ---
 
-# 5. Claude Code First Rule
+# 7. Approved Build Priority Order
 
-Before building anything new, Claude Code must audit the current codebase and produce a clear status report.
+Claude should generally work in this order unless the user instructs otherwise:
 
-For every major feature, mark it as one of:
+## Phase 0 — Stabilize
 
-- `Built`
-- `Partially Built`
-- `Broken`
-- `Missing`
-- `Exists in schema only`
-- `Exists in UI only`
-- `Exists in API only`
-- `Needs wiring`
-- `Needs testing`
+Fix:
 
-A feature is only `Built` if the database, backend route, UI flow, permissions, and practical user experience are connected.
+- build errors
+- TypeScript errors
+- Prisma errors
+- broken auth
+- broken org scoping
+- broken tenant portal isolation
+- broken AI tool handlers
+- broken critical routes
 
-Do not assume a feature works just because:
+## Phase 1 — Complete Existing Core
 
-- A dependency exists
-- A model exists
-- A route exists
-- A button exists
-- A component exists
-- A prompt mentions it
+Complete or fix:
 
-Claude Code must verify end-to-end functionality.
+- properties/units
+- tenants
+- leases
+- rent payments
+- financials
+- maintenance
+- applications
+- messaging
+- tenant portal
+- smart import
 
----
+## Phase 2 — Smart Document Center
 
-# 6. Do Not Duplicate Features
+Build or complete:
 
-Before adding any new feature, Claude Code must search the repo for existing versions under different names.
+- upload/camera document flow
+- AI classification
+- extraction
+- matching to records
+- review card
+- file destination approval
+- document storage/indexing
+- low-confidence Needs Review queue
 
-Example:
+## Phase 3 — Money Workflows
 
-Smart Document Center may be called:
+Build or complete:
 
-- Documents
-- Document Center
-- Documentation Center
-- AI Filing Cabinet
-- File Organizer
-- Smart Filing
-- Upload Center
-- Bills Upload
-- Receipt Scanner
-- AI Document Review
+- bills & payables
+- tenant charges/receivables
+- suggested transactions from documents
+- charge support documents
+- no double-counting rules
 
-If something exists partially, improve it instead of rebuilding a duplicate system.
+## Phase 4 — Today’s Office
 
----
+Build the daily command center:
 
-# 7. Main Audit Areas
+- late rent
+- bills due
+- docs needing review
+- maintenance
+- lease expirations
+- pending applications
+- unread messages
+- tasks due
+- AI suggested actions
 
-Claude Code should audit these major areas:
+## Phase 5 — Operational Workflows
 
-1. Authentication & organizations
-2. Properties & units
-3. Tenants
-4. Leases
-5. Rent & payments
-6. Financials
-7. Maintenance
-8. Vendors
-9. Applications
-10. Messaging
-11. Notifications
-12. Tenant portal
-13. AI chat assistant
-14. Smart Import / AI Migration
-15. Smart Document Center
-16. Bills & Payables
-17. Tenant Charges / Receivables
-18. Notices & Letters
-19. Work Orders
-20. Inspections
-21. Move-Out Workflow
-22. Lease Renewal Workflow
-23. Court Packet Builder
-24. Today’s Office / Command Center
-25. Tasks & Follow-Ups
-26. Calendar
-27. Universal Timeline
-28. Missing Documents Checklist
-29. Owner Reports / Owner Statements
-30. Security, permissions, and organization scoping
+Build clean versions of:
 
----
+- notices & letters
+- work orders
+- inspections
+- move-out workflow
+- lease renewal workflow
+- court packet builder
+- universal timeline
+- missing documents checklist
 
-# 8. Current Core Feature Targets
+## Phase 6 — Reporting & Polish
 
-## 8.1 Authentication & Organizations
+Add/tighten:
 
-Target:
-
-- Landlord/staff login through NextAuth
-- Organization-scoped data isolation
-- User roles
-- Tenant portal auth separated from landlord auth
-- Secure magic-link tenant login
-- Session expiration
-- No cross-organization data leakage
-
-Audit:
-
-- Confirm organization scoping on every API route
-- Confirm `requireOrg()` or equivalent protection
-- Confirm tenant portal endpoints cannot access landlord data
-- Confirm role permissions exist or note if roles are only stored but not enforced
-- Check whether staff/member/viewer roles actually affect access
+- owner statements
+- property health score
+- calendar
+- mobile polish
+- UX cleanup
 
 ---
 
-## 8.2 Properties & Units
+# 8. Core Feature Requirements
 
-Target:
+## Auth & Organization Scoping
 
-- Create/edit/delete/archive properties
-- Create/edit/delete units
-- Property photos
-- Unit photos
-- Property status and unit status
-- Vacancy summary
-- Property expense profile
-- Property detail page showing tenants, leases, units, maintenance, financials, documents, and activity
+Required:
 
-Audit:
+- landlord/staff NextAuth login
+- organization-scoped data
+- tenant portal auth separated from landlord auth
+- magic-link tenant sessions
+- no cross-org access
+- role enforcement if roles exist
 
-- Confirm property CRUD routes
-- Confirm unit CRUD routes
-- Confirm property photos and unit photos upload and display
-- Confirm property status stays accurate when leases/units change
-- Confirm vacancy summary is reliable
-- Confirm property expenses are editable and used in financial snapshots
+Done only when every API route is scoped correctly.
 
----
+## Properties & Units
 
-## 8.3 Tenants
+Required:
 
-Target:
+- create/edit/delete/archive properties
+- create/edit/delete units
+- photos
+- vacancy/status summary
+- property expense profile
+- property detail with units, tenants, leases, maintenance, financials, docs, activity
 
-- Full tenant profile
-- Contact info
-- Emergency contact
-- SSN last 4 / ID fields if legally permitted
-- Notes
-- Current lease and lease history
-- Tenant ledger
-- Tenant documents
-- Tenant messages
-- Tenant portal status
-- Tenant activity history
+## Tenants
 
-Audit:
+Required:
 
-- Confirm tenant CRUD
-- Confirm tenant profile page shows all important info
-- Confirm tenant ledger is accurate
-- Confirm tenant deletion is safe and does not break leases/history
-- Confirm tenant documents exist or are missing
+- full profile
+- emergency contact
+- lease history
+- ledger
+- documents
+- messages
+- portal status
+- activity timeline
 
----
+## Leases
 
-## 8.4 Leases
+Required:
 
-Target:
+- fixed/month-to-month
+- link tenants and unit
+- deposit tracking
+- documents
+- e-signature
+- countersignature
+- move-in checklist
+- expiration reminders
+- renewal workflow eventually
 
-- Create fixed-term and month-to-month leases
-- Link lease to unit and tenant(s)
-- Rent amount
-- Security deposit
-- Deposit paid status
-- Lease documents
-- E-signature workflow
-- Landlord countersignature
-- Move-in checklist
-- Move-in completed status
-- Lease renewal workflow
-- Lease expiration reminders
-- Monthly recurring charges beyond rent
+## Rent & Payments
 
-Audit:
+Required:
 
-- Confirm lease CRUD
-- Confirm lease signing route works
-- Confirm countersignature works
-- Confirm lease documents upload/display
-- Confirm move-in checklist exists and is connected
-- Confirm lease expiration cron/notification works
-- Confirm recurring monthly charges are used in rent/payment calculations or only stored
+- monthly rent records
+- pending/partial/paid/overdue
+- manual payments
+- tenant payment requests
+- receipt upload
+- late fees
+- overdue cron
+- ledger/statement
+- clear distinction between real online payments and manual records
 
----
+Do not mark Stripe/ACH as done unless a real checkout/ACH/card flow exists.
 
-## 8.5 Rent & Payments
+## Financials
 
-Target:
+Required:
 
-- Generate monthly rent payment records
-- Track pending, partial, paid, overdue
-- Record payments manually
-- Tenant payment request flow
-- Landlord confirm/reject payment request
-- Receipt upload
-- Late fee calculation
-- Overdue cron job
-- Payment history
-- Payment statement/ledger
-- Stripe/ACH online rent payments if implemented
+- income/expense transactions
+- categories
+- property-level financials
+- P&L/cashflow
+- portfolio snapshot
+- no double-counting between rent payments and transactions
 
-Audit:
+## Maintenance
 
-- Confirm rent generation route
-- Confirm overdue marking route
-- Confirm payment recording logic
-- Confirm partial payment logic
-- Confirm tenant payment request flow
-- Confirm payment receipt handling
-- Confirm late fee config is actually applied
-- Confirm Stripe is only dependency/schema field or actually implemented
-- Confirm monthly charges beyond rent are included or not
+Required:
 
-Important:
+- tenant submits request
+- landlord manages request
+- priority/status
+- vendor assignment
+- photos/comments
+- estimated/actual cost
+- optional conversion to expense
 
-Do not mark online rent collection as built unless there is a real payment checkout/ACH/card flow connected end-to-end.
+## Applications
 
----
+Required:
 
-## 8.6 Financials
+- public invite link
+- multi-step form
+- documents
+- references
+- screening/status
+- signature
+- approve/deny
+- convert to tenant/lease
 
-Target:
+## Messaging & Notifications
 
-- Income and expense transactions
-- Rent income
-- Late fees
-- Deposits
-- Repairs
-- Insurance
-- Taxes
-- Utilities
-- Management expenses
-- Other categories
-- Property-level P&L
-- Cash flow summary
-- Portfolio financial snapshot
-- AI financial question answering based on real data
+Required:
 
-Audit:
+- landlord/tenant threads
+- portal messages
+- read/unread
+- related records
+- in-app notifications
+- email notifications where appropriate
 
-- Confirm transaction CRUD
-- Confirm dashboard financial KPIs
-- Confirm P&L view
-- Confirm financial data is property-scoped
-- Confirm AI financial tools use accurate data
-- Confirm imported ledger entries are correctly represented
-- Confirm no double-counting between RentPayment and Transaction
+## AI Chat Assistant
+
+Required:
+
+- every tool in `tools.ts` has a handler
+- every handler is org-scoped
+- destructive actions require confirmation
+- financial answers use real data tools
+- no hallucinated balances/expenses
 
 ---
 
-## 8.7 Maintenance
-
-Target:
-
-- Tenant submits maintenance request from portal
-- Landlord creates/edits request
-- Priority workflow
-- Status workflow
-- Assign vendor
-- Upload photos
-- Comment thread
-- Track estimated and actual cost
-- Convert completed repair into expense transaction if appropriate
-- Keep maintenance history by tenant/unit/property
-
-Audit:
-
-- Confirm landlord maintenance routes
-- Confirm portal maintenance routes
-- Confirm photo upload and display
-- Confirm comments work
-- Confirm vendor assignment works
-- Confirm actual cost is connected to financials or only stored
-
----
-
-## 8.8 Vendors
-
-Target:
-
-- Vendor directory
-- Vendor trade/type
-- Contact info
-- Notes
-- Assigned maintenance jobs
-- Vendor invoices/documents
-- Vendor license/insurance expiration if implemented
-
-Audit:
-
-- Confirm vendor CRUD
-- Confirm vendor assignment to maintenance
-- Confirm vendor-related documents exist or are missing
-- Confirm vendor invoice filing exists or is missing
-
----
-
-## 8.9 Applications
-
-Target:
-
-- Public application invite links
-- Multi-step rental application form
-- Applicant personal info
-- Identity/move-in details
-- Employment/income
-- Rental history
-- Background questions where legally permitted
-- Household/pets/vehicles
-- References
-- Document uploads
-- Review and signature
-- Status workflow
-- Screening status
-- Approve/deny
-- Convert approved applicant to tenant and lease
-
-Audit:
-
-- Confirm public application route
-- Confirm application upload route
-- Confirm document requirements
-- Confirm application detail/review UI
-- Confirm status workflow works
-- Confirm conversion creates tenant + lease correctly
-- Confirm duplicate tenants are handled
-
----
-
-## 8.10 Messaging
-
-Target:
-
-- Landlord/tenant threaded messaging
-- Tenant portal messages
-- Landlord app messages
-- Read/unread status
-- Attachments
-- Related records such as lease, maintenance, payment
-- Email/SMS notification if implemented
-
-Audit:
-
-- Confirm messaging routes
-- Confirm tenant portal messages are isolated and secure
-- Confirm read/unread status works
-- Confirm attachments work or are only schema fields
-- Confirm notifications are created when messages are sent
-
----
-
-## 8.11 Notifications
-
-Target:
-
-- In-app bell
-- Polling or realtime refresh
-- Message notifications
-- Payment due notifications
-- Maintenance updates
-- Lease expiry
-- New applications
-- Email notifications through Resend
-
-Audit:
-
-- Confirm notification model
-- Confirm notification routes
-- Confirm notification creation events
-- Confirm bell UI
-- Confirm mark-read behavior
-- Confirm Resend templates/routes
-- Confirm which notifications are email vs in-app only
-
----
-
-## 8.12 Tenant Portal
-
-Target:
-
-Tenant can:
-
-- Request magic link
-- Log in without password
-- View lease
-- View next rent due
-- View payment history
-- Submit payment request
-- Upload receipt
-- Submit maintenance request
-- Track maintenance status
-- Message landlord
-- Sign lease
-- View documents if implemented
-
-Audit:
-
-- Confirm portal auth flow
-- Confirm session cookie security
-- Confirm portal pages
-- Confirm portal APIs only expose current tenant data
-- Confirm payment request flow
-- Confirm maintenance flow
-- Confirm message flow
-- Confirm lease signing flow
-
----
-
-## 8.13 AI Chat Assistant
-
-Target:
-
-The AI assistant should act like a property-management office assistant.
-
-It should be able to:
-
-- Answer questions from real portfolio data
-- Look up tenants
-- Look up properties
-- Look up balances
-- Look up overdue rent
-- Look up expiring leases
-- Look up maintenance
-- Look up vendors
-- Look up applications
-- Create tenants
-- Update tenants
-- Create properties
-- Add units
-- Create leases
-- Record payments
-- Create maintenance requests
-- Update maintenance status
-- Send tenant messages
-- Create transactions
-- Create vendors
-- Advance applications
-- Set screening status
-- Add application documents
-- Confirm move-in
-- Calculate financial scenarios
-
-Audit:
-
-- Confirm current tool list
-- Count tools accurately
-- Confirm every tool has a handler
-- Confirm every handler is org-scoped
-- Confirm destructive tools require confirmation
-- Confirm AI does not hallucinate financial answers
-- Confirm streaming works
-- Confirm UI widget exists on landlord pages
-- Confirm voice input/output if implemented
-
-Important:
-
-If a tool is defined in `tools.ts` but not implemented in handlers, mark it as broken.
-
----
-
-## 8.14 Smart Import / AI Migration
-
-Target:
-
-The migration tool should let users upload files from another platform and extract structured data.
-
-Supported input:
-
-- PDF
-- CSV
-- Excel
-- Screenshot/image
-- Tenant ledger
-- Rent roll
-- Payment history
-- Fee ledger
-
-Extract:
-
-- Tenant info
-- Property/unit info
-- Lease dates
-- Rent amount
-- Deposit
-- Payment history
-- Late fees
-- Legal fees
-- Court costs
-- Attorney fees
-- NSF fees
-- Returned payments
-- Credits
-- Adjustments
-- Running balance if present
-
-Flow:
-
-1. Upload file
-2. AI/deterministic parser extracts data
-3. User reviews extracted cards
-4. Conflict check
-5. Commit creates records
-6. App creates tenants/properties/units/leases/rent payments/transactions
-
-Audit:
-
-- Confirm extraction route
-- Confirm image handling
-- Confirm PDF handling
-- Confirm CSV/XLSX handling
-- Confirm deterministic tenant-ledger parser
-- Confirm conflict check
-- Confirm commit flow
-- Confirm review UI
-- Confirm error handling
-- Confirm duplicate handling
-- Confirm imported ledger does not corrupt rent/payment records
-
----
-
-# 9. High-Value Workflows To Add Or Tighten
-
-These are inspired by major property-management apps but simplified for GHM.
-
-Do not build them in a complicated enterprise way. Build clean, practical versions.
-
----
-
-## 9.1 Today’s Office / Command Center
-
-This should become the main operational dashboard.
-
-Purpose:
-
-Show the user what needs attention today.
-
-Target cards:
-
-- Late rent
-- Payment requests waiting for confirmation
-- Bills/documents needing review
-- Open maintenance
-- Emergency maintenance
-- Lease expirations
-- Applications waiting for review
-- Messages needing reply
-- Upcoming move-ins
-- Upcoming move-outs
-- Bills due soon
-- Tasks due today
-- AI suggested next actions
-
-Example actions:
-
-- Draft late notice
-- Remind tenant
-- Create expense from bill
-- Assign vendor
-- Start lease renewal
-- Review uploaded documents
-- Create task
-- Mark bill paid
-
-Definition of done:
-
-- User can open one page and know what to do next
-- Cards are based on real app data
-- Each card links to the relevant record
-- AI suggestions require user approval before sending/posting
-
----
-
-## 9.2 Smart Document Center / AI Filing Cabinet
-
-This is a major target feature.
-
-User description:
-
-> A documentation center where a user can take a picture of a bill and the AI will figure out where it belongs and place it there.
-
-Target:
-
-User uploads or takes a picture of any property-management document.
-
-Examples:
-
-- Utility bill
-- Water bill
-- Electric bill
-- Gas bill
-- Insurance bill
-- Tax bill
-- Repair receipt
-- Vendor invoice
-- Maintenance invoice
-- Court filing
-- Attorney letter
-- Notice to tenant
-- Lease document
-- Lease renewal
-- Security deposit statement
-- Move-in checklist
-- Move-out inspection
-- Government ID
-- Pay stub
-- Proof of income
-- Bank statement
-- Previous lease
-- Application document
-- Tenant ledger
-- Rent receipt
-- Payment proof
-- Zelle/Venmo screenshot
-- Property photo
-- Maintenance photo
-- Other landlord document
+# 9. Smart Document Center Definition
+
+This is a major differentiator.
+
+User story:
+
+> User takes a picture of a bill. AI understands what it is, extracts the key details, figures out where it belongs, and files it after review.
+
+Supported documents:
+
+- utility bills
+- water/electric/gas bills
+- insurance bills
+- tax bills
+- repair receipts
+- vendor invoices
+- maintenance invoices
+- court filings
+- attorney letters
+- tenant notices
+- leases
+- lease renewals
+- security deposit statements
+- move-in/move-out inspections
+- government IDs
+- pay stubs
+- proof of income
+- bank statements
+- previous leases
+- tenant ledgers
+- rent receipts
+- payment screenshots
+- property photos
+- maintenance photos
 
 Required flow:
 
-1. User opens Smart Document Center.
-2. User uploads a file or takes a picture.
-3. App sends document/image to AI for classification and extraction.
-4. AI identifies document type.
-5. AI extracts key fields.
-6. AI tries to match the document to existing records:
-   - property
-   - unit
-   - tenant
-   - lease
-   - application
-   - maintenance request
-   - vendor
-   - transaction
-   - payment request
-7. App shows a review card to the user.
-8. User can approve, edit, or override the filing destination.
-9. App files the document to the correct record.
-10. If appropriate, app suggests creating a transaction, bill, reminder, or maintenance expense.
-11. App records an activity event.
-12. App makes the document searchable later.
-
-Definition of done:
-
-- Upload works
-- Camera/photo upload works on mobile if possible
-- File is stored securely
-- AI classifies the document type
-- AI extracts useful fields
-- System matches document to existing records
-- User sees review card
-- User can approve/edit filing destination
-- Document appears under the related record
-- Bills/invoices can suggest transactions
-- Low-confidence items go to Needs Review
-- Organization scoping is enforced
-
----
-
-## 9.3 Bills & Payables
-
-Purpose:
-
-Answer: What needs to be paid?
-
-Target:
-
-A simple bill/payables workflow connected to Document Center.
-
-Fields:
-
-- Bill/vendor name
-- Property/unit
-- Amount
-- Due date
-- Bill date
-- Status: needs review / approved / paid / overdue
-- Document attachment
-- Category: utility / repair / insurance / tax / management / other
-
-Workflow:
-
-1. User uploads bill or enters bill manually.
-2. AI extracts vendor, amount, due date, property, and category.
-3. User approves.
-4. Bill appears in payables list.
-5. User marks bill as paid.
-6. App creates expense transaction.
-
-Definition of done:
-
-- User can see all unpaid bills
-- User can filter by property/vendor/status
-- User can mark paid
-- Paid bills create or link to expense transactions
-- No duplicate expense is created accidentally
-
----
-
-## 9.4 Tenant Charges / Receivables
-
-Purpose:
-
-Answer: What needs to be billed to tenants?
-
-Target charge types:
-
-- Late fee
-- Repair chargeback
-- Utility reimbursement
-- Legal fee
-- Court fee
-- Attorney fee
-- NSF fee
-- Returned payment fee
-- Other tenant charge
-
-Workflow:
-
-1. User selects tenant/lease.
-2. User chooses charge type.
-3. User enters or AI extracts amount.
-4. Optional supporting document attached.
-5. Charge appears on tenant ledger.
-6. Optional message/notice sent to tenant.
-
-Definition of done:
-
-- Charge is tied to tenant/lease
-- Charge appears in ledger
-- Charge can be supported by document
-- Optional tenant notification exists
-- No double-counting with rent payments
-
----
-
-## 9.5 Notices & Letters
-
-Purpose:
-
-Give landlords clean, reusable communication workflows.
-
-Templates:
-
-- Late rent notice
-- Rent demand
-- Balance reminder
-- Notice to enter
-- Lease renewal offer
-- Non-renewal notice
-- Maintenance access notice
-- Documents requested
-- Payment confirmation
-- Payment rejection
-- Application denial notice
-- Security deposit deduction letter
-
-Rules:
-
-- AI may draft notices
-- User must approve before sending
-- Notices should be saved to tenant/lease timeline
-- Avoid giving legal advice
-- Include editable templates
-
-Definition of done:
-
-- User can generate a notice from tenant/lease/payment/application context
-- User can edit before sending
-- Sent notice is logged
-- Notice can be included in court packet
-
----
-
-## 9.6 Work Orders
-
-Purpose:
-
-Make maintenance more professional without becoming complicated.
-
-Simple workflow:
-
-1. Maintenance request comes in.
-2. Landlord creates or confirms work order.
-3. Vendor assigned.
-4. Scope of work recorded.
-5. Estimate added.
-6. Approval status tracked.
-7. Before/after photos uploaded.
-8. Vendor invoice uploaded.
-9. Cost becomes expense transaction when approved/paid.
-
-Statuses:
-
-- New
-- Assigned
-- Waiting for estimate
-- Approved
-- In progress
-- Completed
-- Billed/Paid
-
-Definition of done:
-
-- Maintenance request can become work order
-- Vendor can be assigned
-- Estimate and invoice can be tracked
-- Completion can create/suggest expense transaction
-
----
-
-## 9.7 Mobile Inspections
-
-Purpose:
-
-Support move-in, move-out, annual, and maintenance inspections.
-
-Inspection types:
-
-- Move-in inspection
-- Move-out inspection
-- Annual inspection
-- Maintenance inspection
-
-Each inspection should support:
-
-- Room-by-room checklist
-- Photos
-- Notes
-- Damage list
-- Tenant signature if needed
-- Export PDF
-
-Definition of done:
-
-- User can create inspection
-- User can add photos/notes/checklist items
-- Inspection is tied to property/unit/tenant/lease
-- Inspection can be exported or attached to court/security deposit record
-
----
-
-## 9.8 Move-Out Workflow
-
-Purpose:
-
-Guide landlord through move-out and deposit handling.
-
-Workflow:
-
-1. Tenant gives notice.
-2. Move-out date set.
-3. Move-out inspection scheduled.
-4. Inspection completed.
-5. Damages recorded.
-6. Security deposit deductions calculated.
-7. Final balance generated.
-8. Deposit return statement created.
-9. Unit status becomes vacant or under maintenance.
-10. Turnover maintenance tasks created.
-
-Definition of done:
-
-- Move-out status exists
-- Inspection and damages can be recorded
-- Deposit deductions can be listed
-- Final statement can be generated
-- Unit status updates correctly
-
----
-
-## 9.9 Lease Renewal Workflow
-
-Purpose:
-
-Prevent leases from expiring without action.
-
-Workflow:
-
-1. Lease expiring soon.
-2. App shows renewal item in Today’s Office.
-3. AI suggests renewal options if data is available.
-4. User enters new rent/terms.
-5. Renewal offer sent.
-6. Tenant accepts/declines.
-7. New lease/extension generated and signed.
-
-Statuses:
-
-- Upcoming
-- Offer drafted
-- Sent
-- Accepted
-- Declined
-- Non-renewal
-- Completed
-
-Definition of done:
-
-- Expiring leases surface clearly
-- Renewal can be started from lease or dashboard
-- Renewal status is tracked
-- Accepted renewal updates or creates lease record
-
----
-
-## 9.10 Court Packet Builder
-
-Purpose:
-
-Support court/attorney-ready documentation.
-
-One-click export should include:
-
-- Tenant ledger
-- Lease
-- Payment history
-- Charges
-- Notices sent
-- Messages
-- Documents
-- Maintenance records if relevant
-- Activity timeline
-
-Definition of done:
-
-- User selects tenant/lease
-- App builds clean PDF bundle or ZIP
-- Included items are clear and organized
-- Court packet can be downloaded and/or emailed
-
----
-
-## 9.11 Owner Reports / Owner Statements
-
-Purpose:
-
-Useful if users manage properties for other owners.
-
-Start light. Do not build a complicated owner portal first.
-
-Target:
-
-- Monthly owner statement
-- Income by property
-- Expenses by property
-- Repairs
-- Net income
-- Open issues
-- Documents attached
-- Export/send PDF
-
-Definition of done:
-
-- User can generate owner/property statement
-- Statement uses real financial data
-- Statement can be downloaded or emailed
-
----
-
-## 9.12 Leasing CRM / Applicant Follow-Up
-
-Purpose:
-
-Connect vacancy marketing, showings, applications, and lease signing.
-
-Simple pipeline:
-
-- Lead
-- Showing scheduled
-- Applied
-- Documents missing
-- Screening
-- Approved
-- Lease sent
-- Move-in scheduled
-- Lost
-
-Definition of done:
-
-- Applicant/lead status is visible
-- User can see who needs follow-up
-- Missing documents trigger reminder option
-- Approved applicant can convert to tenant/lease
-
----
-
-## 9.13 Vacancy & Turnover Board
-
-Purpose:
-
-Show the lifecycle of units.
-
-Columns:
-
-- Occupied
-- Notice given
-- Moving out
-- Turnover needed
-- Ready to list
-- Listed
-- Application pending
-- Lease pending
-- Move-in scheduled
-
-Definition of done:
-
-- Units appear in correct status
-- User can quickly see which units need action
-- Board links to unit/tenant/application/lease
-
----
-
-## 9.14 AI Maintenance Triage
-
-Purpose:
-
-Help classify and prioritize tenant maintenance requests.
-
-AI should identify:
-
-- Category
-- Urgency
-- Possible vendor type
-- Whether emergency
-- Suggested first response
-- Whether photos are missing
-
-Definition of done:
-
-- New maintenance request can be AI-triaged
-- User can approve category/priority/vendor suggestion
-- Tenant response can be drafted
-
----
-
-## 9.15 AI Message Drafts
-
-Purpose:
-
-Make communication faster.
-
-Inside tenant messages, AI should help with:
-
-- Draft friendly reminder
-- Draft formal notice
-- Summarize thread
-- Identify what tenant asked for
-- Create task from message
-
-Definition of done:
-
-- AI draft appears in message context
-- User edits/approves before sending
-- Draft uses real context and does not hallucinate facts
-
----
-
-## 9.16 Universal Timeline
-
-Purpose:
-
-Every property/tenant/lease should show what happened.
-
-Timeline items:
-
-- Payments
-- Charges
-- Documents
-- Notices
-- Messages
-- Maintenance
-- Inspections
-- AI actions
-- Activity events
-
-Definition of done:
-
-- Tenant timeline exists
-- Property timeline exists
-- Lease timeline exists if practical
-- Timeline links to source records
-- Court packet can use timeline items
-
----
-
-## 9.17 Management Rules / Light Automations
-
-Purpose:
-
-Simple automation rules, not a complex workflow builder.
-
-Examples:
-
-- If rent overdue by X days → create task / draft notice
-- If lease expires in 60 days → create renewal task
-- If maintenance open 7 days → remind manager
-- If document uploaded and confidence low → send to Needs Review
-- If bill due in 3 days → alert user
-- If application missing documents → draft reminder
-
-Definition of done:
-
-- Rules are simple toggles/settings
-- User can approve sensitive actions
-- Automations create tasks/notifications/drafts, not risky silent changes
-
----
-
-## 9.18 Calendar
-
-Purpose:
-
-Show property-management events in one place.
-
-Calendar items:
-
-- Rent due dates
-- Lease expirations
-- Showings
-- Move-ins
-- Move-outs
-- Inspections
-- Court dates
-- Bill due dates
-- Maintenance appointments
-- Task due dates
-
-Definition of done:
-
-- Calendar page exists
-- Events are generated from real records
-- User can filter by property/type
-
----
-
-## 9.19 Property Health Score
-
-Purpose:
-
-Give users quick clarity.
-
-Score based on:
-
-- Vacancy
-- Late rent
-- Open maintenance
-- Expenses
-- Lease expirations
-- Missing documents
-
-Simple labels:
-
-- Healthy
-- Needs attention
-- High risk
-
-Definition of done:
-
-- Score is understandable
-- Score links to reasons
-- AI can explain the score using real data
-
----
-
-## 9.20 Missing Documents Checklist
-
-Purpose:
-
-Make sure important files are not missing.
-
-Tenant/lease missing document examples:
-
-- Signed lease
-- ID
-- Proof of income
-- Security deposit receipt
-- Move-in checklist
-- Renters insurance if required
-
-Property missing document examples:
-
-- Insurance policy
-- Tax bill
-- Utility bill/account
-- Registration/license
-- Inspection report
-
-Definition of done:
-
-- Checklist exists per tenant/lease/property/application
-- Missing items can request upload or open Document Center
-- Completed documents link to filed files
-
----
-
-# 10. Smart Document Center Suggested Data Model
-
-If not already implemented, add a general document model similar to this.
-
-Adapt it to the existing schema style. Do not duplicate existing models unnecessarily.
+1. Upload or camera capture.
+2. Store file securely.
+3. AI classifies document type.
+4. AI extracts fields.
+5. System matches property/unit/tenant/lease/application/maintenance/vendor/transaction.
+6. User sees review card.
+7. User approves/edits filing destination.
+8. Document is filed.
+9. If bill/invoice/receipt, app suggests transaction or payable.
+10. Low confidence goes to Needs Review.
+11. Activity event is logged.
+12. Document appears under related record.
+
+Suggested document model:
 
 ```prisma
 model Document {
   id              String   @id @default(cuid())
   organizationId  String
-
   fileName        String
   fileUrl         String
   fileKey         String?
   mimeType        String?
   fileSizeBytes   Int?
-
-  documentType    String   // bill | receipt | invoice | lease | notice | id | pay_stub | court | insurance | tax | utility | maintenance_photo | other
-  status          String   @default("pending_review") // pending_review | filed | rejected | needs_review
-
-  relatedType     String?  // property | unit | tenant | lease | application | maintenance | vendor | transaction | payment_request
+  documentType    String
+  status          String   @default("pending_review")
+  relatedType     String?
   relatedId       String?
-
   propertyId      String?
   unitId          String?
   tenantId        String?
@@ -1371,23 +588,19 @@ model Document {
   maintenanceId   String?
   vendorId        String?
   transactionId   String?
-
   aiSummary       String?
   aiExtractedData Json?
   aiConfidence    Float?
   aiReasoning     String?
-
   amount          Decimal? @db.Decimal(10, 2)
   documentDate    DateTime?
   dueDate         DateTime?
   vendorName      String?
   accountNumber   String?
   invoiceNumber   String?
-
   createdById     String?
   reviewedById    String?
   reviewedAt      DateTime?
-
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1404,301 +617,294 @@ model Document {
 }
 ```
 
----
-
-# 11. Smart Document Center AI Classification Target
-
-AI should return structured JSON like:
-
-```json
-{
-  "documentType": "utility_bill",
-  "confidence": 0.92,
-  "summary": "Electric bill for 123 Main St, due June 15, amount $248.16.",
-  "extracted": {
-    "amount": 248.16,
-    "documentDate": "2026-05-31",
-    "dueDate": "2026-06-15",
-    "vendorName": "PSE&G",
-    "propertyAddress": "123 Main St",
-    "unitNumber": null,
-    "tenantName": null,
-    "invoiceNumber": "ABC123",
-    "accountNumber": "****1234"
-  },
-  "suggestedFiling": {
-    "relatedType": "property",
-    "relatedId": "property_id_here",
-    "reason": "The bill address matches this property address."
-  },
-  "suggestedActions": [
-    {
-      "type": "create_transaction",
-      "category": "utility",
-      "amount": 248.16,
-      "date": "2026-05-31",
-      "description": "Electric bill - PSE&G"
-    }
-  ],
-  "needsReview": false
-}
-```
+Claude should adapt this to existing schema and avoid duplication.
 
 ---
 
-# 12. Security & Privacy Checklist
+# 10. Bills & Payables
 
-GHM may contain sensitive landlord and tenant information.
+Purpose:
 
-Claude Code must protect:
+Answer: what needs to be paid?
 
-- Government IDs
-- SSNs / SSN last 4
-- Pay stubs
-- Bank statements
-- Court papers
-- Legal documents
-- Lease documents
-- Tenant contact info
-- Payment receipts
-- Financial records
+Required:
+
+- bill/vendor name
+- property/unit
+- amount
+- due date
+- bill date
+- status: needs review / approved / paid / overdue
+- document attachment
+- category: utility / repair / insurance / tax / management / other
+- mark paid
+- create/link expense transaction
+
+Must connect to Smart Document Center.
+
+---
+
+# 11. Tenant Charges / Receivables
+
+Purpose:
+
+Answer: what needs to be billed to tenants?
+
+Charge types:
+
+- late fee
+- repair chargeback
+- utility reimbursement
+- legal fee
+- court fee
+- attorney fee
+- NSF fee
+- returned payment fee
+- other tenant charge
+
+Required:
+
+- tied to tenant/lease
+- appears on ledger
+- optional support document
+- optional notice/message
+- no double-counting with rent payments
+
+---
+
+# 12. Today’s Office / Command Center
+
+Purpose:
+
+One page that tells the manager what needs attention today.
+
+Cards:
+
+- late rent
+- payment requests waiting confirmation
+- bills/documents needing review
+- open maintenance
+- emergency maintenance
+- lease expirations
+- applications waiting review
+- unread messages
+- move-ins/move-outs
+- tasks due
+- AI suggested next actions
+
+Each card must link to real records.
+
+---
+
+# 13. High-Value Workflows To Add Cleanly
+
+## Notices & Letters
+
+Templates:
+
+- late rent notice
+- rent demand
+- balance reminder
+- notice to enter
+- lease renewal offer
+- non-renewal notice
+- maintenance access notice
+- documents requested
+- payment confirmation/rejection
+- application denial
+- security deposit deduction letter
+
+AI can draft; user approves before sending. Sent notices are logged.
+
+## Work Orders
+
+Maintenance request → work order → vendor → estimate → approval → completed → invoice → expense.
+
+## Inspections
+
+Move-in, move-out, annual, maintenance inspections with photos, checklist, notes, damages, signatures, PDF export.
+
+## Move-Out Workflow
+
+Notice received → move-out date → inspection → damages → deposit deductions → final balance → deposit return statement → unit status update → turnover tasks.
+
+## Lease Renewal Workflow
+
+Expiring lease → renewal task → offer drafted → sent → accepted/declined → new lease/extension signed.
+
+## Court Packet Builder
+
+One-click export for attorney/court:
+
+- ledger
+- lease
+- payment history
+- charges
+- notices
+- messages
+- documents
+- maintenance if relevant
+- activity timeline
+
+## Universal Timeline
+
+Every tenant/property/lease should show payments, charges, docs, notices, messages, maintenance, inspections, AI actions, and activity events.
+
+## Missing Documents Checklist
+
+Show missing required docs per tenant/lease/property/application and allow upload/request.
+
+## Calendar
+
+Events for rent due, lease expirations, showings, move-ins, move-outs, inspections, court dates, bill due dates, maintenance appointments, task due dates.
+
+## Owner Statements
+
+Light version first: monthly property income, expenses, repairs, net income, open issues, documents, export/email PDF.
+
+---
+
+# 14. Security & Privacy Rules
+
+Protect:
+
+- IDs
+- SSNs/SSN last 4
+- pay stubs
+- bank statements
+- court/legal docs
+- leases
+- payment receipts
+- tenant contact info
+- financial records
 
 Rules:
 
-- All document routes must be organization-scoped
-- Tenant portal should only access tenant-authorized documents
-- Public application uploads should only attach to that application
-- Magic-link sessions must not expose other tenant files
-- File URLs should not be exposed publicly unless intentionally designed
-- Sensitive fields should not be over-shared in AI summaries
-- AI should not invent financial/legal facts
-- Destructive actions require explicit user confirmation
+- every document route is org-scoped
+- tenant portal sees only authorized tenant documents
+- public application uploads attach only to that application
+- magic links never expose other tenants/files
+- file URLs are not public unless intentionally designed
+- AI summaries should not leak sensitive data unnecessarily
+- destructive actions require confirmation
+- financial/legal actions require review before commit
 
 ---
 
-# 13. Build Priority Order
+# 15. Testing & Completion Checklist
 
-After auditing, Claude Code should prioritize in this order:
-
-## Priority 1 — Fix broken existing features
-
-Examples:
-
-- Broken auth
-- Broken org scoping
-- Broken rent payment logic
-- Broken tenant portal
-- Broken AI tool handlers
-- Broken imports
-- Broken build/deploy
-
-## Priority 2 — Complete partially built features
-
-Examples:
-
-- Feature exists in schema but no UI
-- UI exists but API missing
-- API exists but not connected
-- AI tool defined but no handler
-- File upload exists but not displayed
-
-## Priority 3 — Smart Document Center
-
-This is a major product differentiator.
-
-## Priority 4 — Bills, Payables, and Tenant Charges
-
-This turns documents into money workflows.
-
-## Priority 5 — Today’s Office
-
-This turns GHM into a daily operating system.
-
-## Priority 6 — Notices, Move-Outs, Renewals, Work Orders, Inspections
-
-These complete the landlord/management lifecycle.
-
-## Priority 7 — Court Packet Builder and Owner Reports
-
-These are high-value professional outputs.
-
-## Priority 8 — UI/mobile polish
-
-Keep the app clean, friendly, and efficient.
-
----
-
-# 14. Feature Audit Report Template
-
-Claude Code should produce reports using this format:
-
-```md
-# GHM Feature Audit Report
-
-## Summary
-- Built:
-- Partially built:
-- Broken:
-- Missing:
-- Highest-risk issues:
-
-## Feature Status Table
-
-| Feature | Status | Evidence in Repo | Missing Pieces | Recommended Fix |
-|---|---|---|---|---|
-| Properties | Built/Partial/Broken/Missing | files/models/routes | issue | fix |
-| Units | | | | |
-| Tenants | | | | |
-| Leases | | | | |
-| Rent Payments | | | | |
-| Financials | | | | |
-| Maintenance | | | | |
-| Vendors | | | | |
-| Applications | | | | |
-| Messaging | | | | |
-| Notifications | | | | |
-| Tenant Portal | | | | |
-| AI Assistant | | | | |
-| Smart Import | | | | |
-| Smart Document Center | | | | |
-| Bills & Payables | | | | |
-| Tenant Charges | | | | |
-| Notices | | | | |
-| Work Orders | | | | |
-| Inspections | | | | |
-| Move-Out Workflow | | | | |
-| Lease Renewal Workflow | | | | |
-| Court Packet Builder | | | | |
-| Today’s Office | | | | |
-| Calendar | | | | |
-| Universal Timeline | | | | |
-
-## Detailed Findings
-
-### Feature Name
-Status:
-Files checked:
-What works:
-What is broken:
-What is missing:
-Recommended implementation steps:
-Risk level:
-```
-
----
-
-# 15. Testing Requirements
-
-Before marking any feature complete, Claude Code should check:
+Before marking a feature `Done`, verify:
 
 - TypeScript passes
-- Build passes
+- build passes
 - Prisma generate passes
-- API route compiles
-- UI page loads
-- Org scoping is enforced
-- Tenant portal isolation is enforced
-- File upload works where relevant
+- relevant pages load
+- relevant APIs compile
+- auth is enforced
+- org scoping is enforced
+- tenant portal isolation is enforced
+- file upload works if applicable
 - AI tool has both definition and handler
-- AI tool handler is org-scoped
-- Data is not double-counted
-- Error states are handled
-- Empty states are friendly
-- Mobile layout is usable for key workflows
+- no duplicate financial records
+- empty states are usable
+- error states are usable
+- mobile layout is usable for key flows
+
+If not tested, mark `Built but needs testing`.
 
 ---
 
 # 16. Do Not Do These Things
 
-Claude Code should avoid:
+Claude must avoid:
 
-- Duplicating models without checking existing schema
-- Building new routes without using existing patterns
-- Ignoring organization scoping
-- Marking schema-only features as complete
-- Auto-posting expenses without review
-- Exposing private documents through public URLs
-- Letting tenant portal access landlord-only files
-- Creating AI tools without handlers
-- Creating UI buttons that do nothing
-- Breaking existing Smart Import while adding Document Center
-- Double-counting rent payments and transactions
-- Assuming Stripe is fully implemented just because dependency exists
-- Building overly complex enterprise workflows too early
+- duplicating existing features
+- creating schema-only features and calling them done
+- creating UI-only buttons that do nothing
+- creating AI tools without handlers
+- ignoring org scoping
+- exposing private files
+- allowing tenant portal to access landlord files
+- silently posting expenses/charges/notices without review
+- double-counting rent payments and transactions
+- assuming Stripe is live because dependency exists
+- making enterprise-heavy workflows too early
+- breaking Smart Import while building Document Center
 
 ---
 
-# 17. Recommended Claude Code Audit Prompt
+# 17. Agentic Work Log
 
-Use this prompt with Claude Code:
+Claude must maintain this section.
+
+## Current Cycle
+
+- Cycle number: 0
+- Current objective: Initial audit against this file
+- Current status: Not started
+- Blockers: None yet
+- Next action: Audit repo and fill Feature Audit Matrix
+
+## Completed Cycles
+
+| Cycle | Date | Objective | Result | Tests | Notes |
+|---|---|---|---|---|---|
+| 0 | TBD | Initial audit | Pending | Pending | Start here |
+
+## Known Blockers
+
+| Blocker | Area | Reason | Required User Decision |
+|---|---|---|---|
+| None yet | TBD | TBD | TBD |
+
+## Next Recommended Batch
+
+1. Audit all routes/models/components for current feature status.
+2. Verify whether Smart Document Center already exists under another name.
+3. Verify AI tools all have handlers.
+4. Verify tenant portal isolation.
+5. Verify rent/payment/transaction double-counting risks.
+
+---
+
+# 18. Claude Code Start Prompt
+
+Use this exact prompt:
 
 ```txt
 Read docs/GHM_PRODUCT_TARGET_AND_AUDIT.md first.
 
-Then audit the current GHM repo against that document.
+Operate as an agentic loop:
+READ → AUDIT → CLASSIFY → PLAN → IMPLEMENT SMALL BATCH → TEST → UPDATE THIS FILE → REPEAT.
 
-Do not change code yet.
+Start with audit only. Do not change product code yet.
 
-Return a structured report showing:
-1. What is built
-2. What is partially built
-3. What is broken
-4. What is missing
-5. What exists only in schema
-6. What exists only in UI
-7. What exists only in API
-8. Whether Smart Document Center exists end-to-end
-9. Whether AI document filing from a picture/bill is actually implemented
-10. Whether Bills & Payables exist
-11. Whether Tenant Charges / Receivables exist
-12. Whether Today’s Office exists
-13. Whether work orders, inspections, move-out, renewal, notices, and court packet builder exist
-14. The safest implementation plan in priority order
+Return:
+1. Feature Audit Matrix status updates
+2. Built / partial / broken / missing list
+3. Smart Document Center verification
+4. AI tools vs handlers verification
+5. tenant portal isolation risks
+6. rent/payment/transaction double-counting risks
+7. safest next implementation batch
 
-Pay special attention to:
-- Smart Document Center / AI Filing Cabinet
-- Smart Import vs Document Center difference
-- AI tools and handlers
-- File upload/document models
-- Bills & Payables
-- Tenant Charges
-- Organization scoping/security
-- Rent/payment/transaction double-counting
-- Tenant portal isolation
-
-Audit only. Do not modify code until I approve the plan.
+After the audit, update this MD file with the findings and wait for approval before code changes if the next step involves migrations, security/auth changes, destructive changes, payments, or legal notices.
 ```
 
 ---
 
-# 18. Current Key Question
-
-The important question right now is:
-
-Does GHM truly have a Smart Document Center where a user can take a picture of a bill, AI understands it, matches it to the correct property/tenant/lease/vendor/transaction, and files it there?
-
-Claude Code must verify this directly from the repo.
-
-If it exists, document exactly where and how it works.
-
-If it is partial, identify the missing pieces.
-
-If it is missing, build it using the target design above.
-
----
-
-# 19. Definition of Done for GHM Core Direction
+# 19. Definition of Done For The Whole Direction
 
 GHM is on the right path when:
 
-- Core landlord records work reliably
-- Rent and financials are accurate
-- Tenant portal is secure and useful
-- Documents are organized intelligently
+- core landlord records work reliably
+- rent and financials are accurate
+- tenant portal is secure and useful
+- documents are organized intelligently
 - AI helps but does not silently make risky decisions
 - Today’s Office shows what needs attention
-- Bills and tenant charges connect to financials
-- Notices and court packets support legal workflows
-- Move-in, renewal, maintenance, and move-out workflows are connected
-- The app remains clean, friendly, and not overwhelming
+- bills and tenant charges connect to financials
+- notices and court packets support legal workflows
+- move-in, renewal, maintenance, and move-out workflows are connected
+- the app remains clean, friendly, and not overwhelming
 
