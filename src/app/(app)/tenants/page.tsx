@@ -1,11 +1,10 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Users, Plus, Mail, Phone } from "lucide-react";
+import { FileText, Mail, Phone, Plus, Users } from "lucide-react";
 import { getInitials } from "@/lib/utils";
 
 export default async function TenantsPage() {
@@ -14,18 +13,38 @@ export default async function TenantsPage() {
 
   const orgId = session.user.organizationId;
 
-  // Get all active leases with their tenants (one card per unit)
-  const activeLeases = await prisma.lease.findMany({
-    where: { organizationId: orgId, status: "active" },
-    include: {
-      unit: { include: { property: true } },
-      tenants: { include: { tenant: true }, orderBy: { isPrimary: "desc" } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
+  const [activeLeases, propDocCounts] = await Promise.all([
+    prisma.lease.findMany({
+      where: { organizationId: orgId, status: "active" },
+      include: {
+        unit: { include: { property: true } },
+        tenants: {
+          include: {
+            tenant: {
+              include: {
+                convertedFrom: { include: { documents: { select: { id: true } } } },
+              },
+            },
+          },
+          orderBy: { isPrimary: "desc" },
+        },
+        documents: { select: { id: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.propertyDocument.groupBy({
+      by: ["propertyId"],
+      where: { organizationId: orgId, propertyId: { not: null } },
+      _count: { id: true },
+    }),
+  ]);
 
-  // Group by unit — if multiple active leases exist for the same unit (e.g. imported separately),
-  // merge their tenants into a single card rather than showing duplicates
+  const propDocMap = new Map(
+    propDocCounts
+      .filter((r) => r.propertyId != null)
+      .map((r) => [r.propertyId as string, r._count.id]),
+  );
+
   type LeaseRow = (typeof activeLeases)[0];
   const unitMap = new Map<string, { lease: LeaseRow; tenants: LeaseRow["tenants"] }>();
   for (const lease of activeLeases) {
@@ -44,87 +63,101 @@ export default async function TenantsPage() {
   }
   const groupedUnits = [...unitMap.values()];
 
-  // Tenants with no active lease — shown individually
   const tenantIdsWithLease = new Set(activeLeases.flatMap((l) => l.tenants.map((lt) => lt.tenantId)));
   const unattached = await prisma.tenant.findMany({
     where: { organizationId: orgId, id: { notIn: [...tenantIdsWithLease] } },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });
 
-  const totalTenants = tenantIdsWithLease.size + unattached.length; // count of people, not cards
+  const totalTenants = tenantIdsWithLease.size + unattached.length;
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="page-shell page-stack">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Tenants</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">{totalTenants} tenant{totalTenants !== 1 ? "s" : ""}</p>
+          <p className="page-kicker">Residents</p>
+          <h1 className="page-title mt-2">Tenants</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {totalTenants} tenant{totalTenants !== 1 ? "s" : ""} across {groupedUnits.length} active unit{groupedUnits.length !== 1 ? "s" : ""}
+          </p>
         </div>
         <Link href="/tenants/new">
           <Button size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />Add tenant
+            <Plus className="h-4 w-4" />
+            Add tenant
           </Button>
         </Link>
       </div>
 
       {totalTenants === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-xl">
-          <Users className="h-12 w-12 text-muted-foreground/40 mb-4" />
-          <h3 className="font-semibold text-lg">No tenants yet</h3>
-          <p className="text-muted-foreground text-sm mt-1 mb-4">Add tenants and link them to leases</p>
-          <Link href="/tenants/new"><Button size="sm"><Plus className="h-4 w-4 mr-2" />Add tenant</Button></Link>
+        <div className="empty-state">
+          <Users className="mb-4 h-12 w-12 text-muted-foreground/40" />
+          <h3 className="font-heading text-3xl font-semibold">No tenants yet</h3>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">Add tenants and link them to leases so rent, messages, and documents stay organized.</p>
+          <Link href="/tenants/new" className="mt-5">
+            <Button size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />
+              Add tenant
+            </Button>
+          </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {/* One card per unit (groups co-tenants even across separate leases) */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {groupedUnits.map(({ lease, tenants }) => {
             const tenantList = tenants.map((lt) => lt.tenant);
             const primary = tenantList[0];
             if (!primary) return null;
+            const leaseDocCount = lease.documents.length;
+            const appDocCount = tenants.reduce(
+              (sum, lt) => sum + (lt.tenant.convertedFrom?.documents.length ?? 0),
+              0,
+            );
+            const propDocCount = propDocMap.get(lease.unit.property.id) ?? 0;
+            const totalDocCount = leaseDocCount + appDocCount + propDocCount;
             return (
-              <Card key={lease.unitId} className="relative hover:shadow-md transition-shadow cursor-pointer">
+              <article key={lease.unitId} className="relative rounded-lg border bg-card p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md">
                 <Link
                   href={`/tenants/${primary.id}`}
-                  className="absolute inset-0 z-0 rounded-xl"
+                  className="absolute inset-0 z-0 rounded-lg"
                   aria-label={`Open tenant file for ${primary.firstName} ${primary.lastName}`}
                 />
-                <CardContent className="p-4 space-y-3">
-                  {/* Avatars + unit */}
+                <div className="relative z-10 space-y-4">
                   <div className="flex items-center gap-3">
                     <div className="flex -space-x-2">
-                      {tenantList.slice(0, 3).map((t) => (
-                        <div key={t.id} className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-semibold text-primary text-sm ring-2 ring-background shrink-0">
-                          {getInitials(`${t.firstName} ${t.lastName}`)}
+                      {tenantList.slice(0, 3).map((tenant) => (
+                        <div key={tenant.id} className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-card bg-primary/10 font-semibold text-primary shadow-sm">
+                          {getInitials(`${tenant.firstName} ${tenant.lastName}`)}
                         </div>
                       ))}
                     </div>
                     <div className="min-w-0">
-                      <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200">Active</Badge>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {lease.unit.property.name} · Unit {lease.unit.unitNumber}
+                      <Badge variant="outline" className="border-emerald-200 text-xs text-emerald-700 dark:border-emerald-900 dark:text-emerald-300">Active</Badge>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {lease.unit.property.name} - Unit {lease.unit.unitNumber}
                       </p>
                     </div>
                   </div>
 
-                  {/* Each tenant's info */}
-                  <div className="space-y-2 border-t pt-2">
-                    {tenantList.map((t, idx) => (
-                      <div key={t.id} className="relative z-10">
-                        <Link href={`/tenants/${t.id}`} className="font-medium text-sm hover:text-primary transition-colors">
-                          {t.firstName} {t.lastName}
-                          {idx === 0 && tenantList.length > 1 && (
-                            <span className="ml-1.5 text-xs text-muted-foreground font-normal">(primary)</span>
+                  <div className="space-y-3 border-t pt-3">
+                    {tenantList.map((tenant, index) => (
+                      <div key={tenant.id}>
+                        <Link href={`/tenants/${tenant.id}`} className="relative z-10 text-sm font-semibold hover:text-primary">
+                          {tenant.firstName} {tenant.lastName}
+                          {index === 0 && tenantList.length > 1 && (
+                            <span className="ml-1.5 text-xs font-normal text-muted-foreground">(primary)</span>
                           )}
                         </Link>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                          {t.email && (
-                            <a href={`mailto:${t.email}`} className="relative z-10 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
-                              <Mail className="h-3 w-3" />{t.email}
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          {tenant.email && (
+                            <a href={`mailto:${tenant.email}`} className="relative z-10 flex items-center gap-1 hover:text-primary">
+                              <Mail className="h-3 w-3" />
+                              {tenant.email}
                             </a>
                           )}
-                          {t.phone && (
-                            <a href={`tel:${t.phone}`} className="relative z-10 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
-                              <Phone className="h-3 w-3" />{t.phone}
+                          {tenant.phone && (
+                            <a href={`tel:${tenant.phone}`} className="relative z-10 flex items-center gap-1 hover:text-primary">
+                              <Phone className="h-3 w-3" />
+                              {tenant.phone}
                             </a>
                           )}
                         </div>
@@ -132,34 +165,41 @@ export default async function TenantsPage() {
                     ))}
                   </div>
 
-                  <Link href={`/leases/${lease.id}`} className="relative z-10 block text-xs text-primary hover:underline">
-                    View lease →
-                  </Link>
-                </CardContent>
-              </Card>
+                  <div className="flex items-center gap-3">
+                    <Link href={`/leases/${lease.id}`} className="quiet-link relative z-10 text-xs">
+                      View lease
+                    </Link>
+                    {totalDocCount > 0 && (
+                      <span className="relative z-10 flex items-center gap-1 text-xs text-muted-foreground">
+                        <FileText className="h-3 w-3" />
+                        {totalDocCount} doc{totalDocCount !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </article>
             );
           })}
 
-          {/* Tenants with no active lease */}
           {unattached.map((tenant) => (
-            <Link key={tenant.id} href={`/tenants/${tenant.id}`}>
-              <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                <CardContent className="p-4 flex items-start gap-4">
-                  <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center font-semibold text-muted-foreground shrink-0">
+            <Link key={tenant.id} href={`/tenants/${tenant.id}`} className="block">
+              <article className="rounded-lg border bg-card p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-muted-foreground">
                     {getInitials(`${tenant.firstName} ${tenant.lastName}`)}
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-sm">{tenant.firstName} {tenant.lastName}</h3>
-                      <Badge variant="outline" className="text-xs text-muted-foreground">No lease</Badge>
+                      <h3 className="truncate text-sm font-semibold">{tenant.firstName} {tenant.lastName}</h3>
+                      <Badge variant="outline" className="shrink-0 text-xs text-muted-foreground">No lease</Badge>
                     </div>
-                    <div className="flex flex-wrap gap-x-3 mt-1.5">
-                      {tenant.email && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="h-3 w-3" />{tenant.email}</span>}
-                      {tenant.phone && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="h-3 w-3" />{tenant.phone}</span>}
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {tenant.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{tenant.email}</span>}
+                      {tenant.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{tenant.phone}</span>}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </article>
             </Link>
           ))}
         </div>

@@ -163,15 +163,15 @@ export function WorkflowVerificationPanel({ app }: Props) {
   const passed = stages.filter((s) => s.status === "pass").length;
 
   const statusIcon = (s: StageStatus) => {
-    if (s === "pass") return <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />;
-    if (s === "fail") return <XCircle className="h-4 w-4 text-red-400 shrink-0" />;
-    return <Clock className="h-4 w-4 text-amber-400 shrink-0" />;
+    if (s === "pass") return <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />;
+    if (s === "fail") return <XCircle className="h-5 w-5 text-red-400 shrink-0" />;
+    return <Clock className="h-5 w-5 text-amber-400 shrink-0" />;
   };
 
   return (
     <div className="space-y-1">
       {/* Progress bar */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+      <div className="mb-2 flex items-center justify-between text-[0.95rem] text-muted-foreground">
         <span className="font-medium">{passed}/{stages.length} stages complete</span>
         <span className={passed === stages.length ? "text-emerald-600 font-medium" : ""}>
           {passed === stages.length ? "✓ Ready for move-in" : `${stages.length - passed} remaining`}
@@ -184,11 +184,11 @@ export function WorkflowVerificationPanel({ app }: Props) {
       {/* Stage rows */}
       <div className="space-y-2">
         {stages.map((stage) => (
-          <div key={stage.name} className={`rounded-lg border p-3 text-xs ${stage.status === "pass" ? "border-emerald-200 bg-emerald-50/40" : stage.status === "fail" ? "border-red-200 bg-red-50/40" : "border-amber-200 bg-amber-50/30"}`}>
+          <div key={stage.name} className={`rounded-lg border p-4 text-[0.95rem] ${stage.status === "pass" ? "border-emerald-200 bg-emerald-50/40" : stage.status === "fail" ? "border-red-200 bg-red-50/40" : "border-amber-200 bg-amber-50/30"}`}>
             <div className="flex items-start gap-2">
               {statusIcon(stage.status)}
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm">{stage.name}</p>
+                <p className="text-base font-medium">{stage.name}</p>
                 <p className="text-muted-foreground mt-0.5">{stage.detail}</p>
                 {stage.timestamp && (
                   <p className="text-muted-foreground/70 mt-0.5">{formatDate(new Date(stage.timestamp))}</p>
@@ -205,7 +205,7 @@ export function WorkflowVerificationPanel({ app }: Props) {
       {/* Activity log */}
       <div className="mt-3 border rounded-lg overflow-hidden">
         <button
-          className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium bg-muted/30 hover:bg-muted/50 transition-colors"
+          className="flex w-full items-center justify-between bg-muted/30 px-3 py-2.5 text-[0.95rem] font-medium transition-colors hover:bg-muted/50"
           onClick={() => setLogOpen((o) => !o)}
         >
           <span>Activity Log ({events.length})</span>
@@ -214,9 +214,9 @@ export function WorkflowVerificationPanel({ app }: Props) {
         {logOpen && (
           <div className="divide-y max-h-64 overflow-y-auto">
             {events.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-3 py-2">No activity yet.</p>
+              <p className="px-3 py-2 text-[0.95rem] text-muted-foreground">No activity yet.</p>
             ) : events.map((e) => (
-              <div key={e.id} className="px-3 py-2 text-xs">
+              <div key={e.id} className="px-3 py-2 text-[0.95rem]">
                 <div className="flex items-center justify-between">
                   <span className="font-medium capitalize">{e.eventType.replace("_", " ")}</span>
                   <span className="text-muted-foreground">{formatDate(new Date(e.createdAt))}</span>

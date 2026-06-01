@@ -20,6 +20,12 @@ import {
   DoorOpen,
   RefreshCw,
   CalendarDays,
+  FolderOpen,
+  Bot,
+  CheckSquare,
+  Receipt,
+  Coffee,
+  AlertCircle,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +49,7 @@ interface NavSection {
 const navSections: NavSection[] = [
   {
     items: [
+      { href: "/todays-office", label: "Today's Office", icon: Coffee },
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/properties", label: "Properties", icon: Building2 },
       { href: "/tenants", label: "Tenants", icon: Users },
@@ -65,13 +72,23 @@ const navSections: NavSection[] = [
       { href: "/vendors", label: "Vendors", icon: HardHat },
       { href: "/messages", label: "Messages", icon: MessageSquare, badgeKey: "messages" },
       { href: "/calendar", label: "Calendar", icon: CalendarDays },
+      { href: "/tasks", label: "Tasks", icon: CheckSquare, badgeKey: "tasks" },
     ],
   },
   {
     label: "Finance",
     items: [
       { href: "/financials", label: "Financials", icon: ArrowUpDown },
+      { href: "/bills", label: "Bills", icon: Receipt, badgeKey: "bills" },
+      { href: "/documents", label: "Documents", icon: FolderOpen },
+      { href: "/missing-documents", label: "Missing Docs", icon: AlertCircle, badgeKey: "missingDocs" },
       { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { href: "/agent", label: "Agent Ops", icon: Bot },
     ],
   },
   {
@@ -84,60 +101,72 @@ const navSections: NavSection[] = [
 interface SidebarProps {
   pendingApplications?: number;
   unreadMessages?: number;
+  openTasks?: number;
+  unpaidBills?: number;
   collapsed?: boolean;
   onToggle?: () => void;
 }
 
-export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ pendingApplications = 0, unreadMessages = 0, openTasks = 0, unpaidBills = 0, collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
 
   const badges: Record<string, number> = {
     applications: pendingApplications,
     messages: unreadMessages,
+    tasks: openTasks,
+    bills: unpaidBills,
   };
 
   return (
     <aside
       className={cn(
-        "flex flex-col h-full bg-sidebar border-r border-sidebar-border transition-all duration-200",
-        collapsed ? "w-16" : "w-60"
+        "flex h-full flex-col border-r border-sidebar-border bg-sidebar/95 shadow-sm transition-all duration-200",
+        collapsed ? "w-[4.25rem]" : "w-64"
       )}
     >
-      {/* Logo */}
-      <div className={cn("flex items-center h-14 px-4 border-b border-sidebar-border", collapsed ? "justify-center" : "justify-between")}>
-        {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-primary" />
-            <span className="font-semibold text-sidebar-foreground tracking-tight">GHM</span>
-          </Link>
-        )}
+      <div className={cn("relative flex h-16 items-center gap-2 border-b border-sidebar-border px-3", collapsed ? "justify-center" : "justify-between")}>
+        <Link href="/dashboard" className={cn("flex min-w-0 items-center gap-3", collapsed && "justify-center")}>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-card text-primary shadow-sm">
+            <span className="font-heading text-xl font-semibold leading-none">G</span>
+          </span>
+          {!collapsed && (
+            <span className="min-w-0">
+              <span className="block font-heading text-2xl font-semibold leading-none text-sidebar-foreground">GHM</span>
+              <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.14em] text-sidebar-foreground/45">
+                Property Office
+              </span>
+            </span>
+          )}
+        </Link>
         <button
           onClick={onToggle}
-          className="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground transition-colors"
+          className={cn(
+            "rounded-md p-1.5 text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
+            collapsed && "absolute -right-3 top-1/2 -translate-y-1/2 border bg-card shadow-sm"
+          )}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <ChevronLeft className={cn("h-4 w-4 transition-transform", collapsed && "rotate-180")} />
         </button>
       </div>
 
-      {/* Search */}
-      <div className={cn("px-2 py-2 border-b border-sidebar-border", collapsed && "px-1.5")}>
+      <div className={cn("border-b border-sidebar-border px-2 py-2.5", collapsed && "px-1.5")}>
         <GlobalSearch collapsed={collapsed} />
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-3 overflow-y-auto">
-        <ul className="space-y-0.5 px-2">
+      <nav className="flex-1 overflow-y-auto py-3">
+        <ul className="space-y-1 px-2">
           {navSections.map((section, si) => (
             <li key={si}>
               {section.label && !collapsed && (
-                <p className="px-2.5 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 select-none">
+                <p className="px-2.5 pb-1.5 pt-4 text-xs font-semibold uppercase tracking-[0.13em] text-sidebar-foreground/42 select-none">
                   {section.label}
                 </p>
               )}
               {section.label && collapsed && si > 0 && (
-                <div className="my-1.5 mx-2 border-t border-sidebar-border/50" />
+                <div className="mx-2 my-2 border-t border-sidebar-border/70" />
               )}
-              <ul className="space-y-0.5">
+              <ul className="space-y-1">
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -147,20 +176,20 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
                       <Link
                         href={item.href}
                         className={cn(
-                          "flex items-center gap-3 px-2.5 py-2 rounded-md text-sm font-medium transition-colors",
+                          "flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 text-[0.95rem] font-medium transition-colors",
                           isActive
-                            ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                            : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                            ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground shadow-sm"
+                            : "border-transparent text-sidebar-foreground/68 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
                           collapsed && "justify-center px-2"
                         )}
                         title={collapsed ? item.label : undefined}
                       >
-                        <Icon className="h-4 w-4 shrink-0" />
+                        <Icon className={cn("h-5 w-5 shrink-0", isActive ? "text-primary" : "text-sidebar-foreground/55")} />
                         {!collapsed && (
                           <>
                             <span className="flex-1">{item.label}</span>
                             {badgeCount > 0 && (
-                              <Badge variant="destructive" className="h-5 min-w-5 text-xs px-1">
+                              <Badge variant="destructive" className="h-5 min-w-5 px-1 text-xs">
                                 {badgeCount}
                               </Badge>
                             )}
@@ -176,8 +205,7 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
         </ul>
       </nav>
 
-      {/* Notification bell + theme toggle + Sign out */}
-      <div className="p-2 border-t border-sidebar-border space-y-1">
+      <div className="space-y-1 border-t border-sidebar-border p-2">
         <div className={cn("flex", collapsed ? "justify-center" : "px-1")}>
           <NotificationBell collapsed={collapsed} />
         </div>
@@ -185,7 +213,7 @@ export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed
         <Button
           variant="ghost"
           size="sm"
-          className={cn("w-full text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent", collapsed ? "px-2 justify-center" : "justify-start gap-3")}
+          className={cn("w-full text-sidebar-foreground/68 hover:bg-sidebar-accent hover:text-sidebar-foreground", collapsed ? "justify-center px-2" : "justify-start gap-3")}
           onClick={() => signOut({ callbackUrl: "/login" })}
         >
           <LogOut className="h-4 w-4 shrink-0" />

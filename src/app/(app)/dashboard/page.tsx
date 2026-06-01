@@ -1,34 +1,36 @@
-import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { addDays } from "date-fns";
+import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatRelativeTime, daysUntil } from "@/lib/utils";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Building2,
-  DollarSign,
   AlertTriangle,
-  Clock,
-  Wrench,
-  ClipboardList,
-  TrendingUp,
-  Sparkles,
-  Brain,
   ArrowRight,
+  Brain,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  CheckSquare,
+  ClipboardList,
+  DollarSign,
   DoorOpen,
   FileText,
   MessageSquare,
-  ChevronDown,
+  Receipt,
+  Sparkles,
+  TrendingUp,
+  Wrench,
 } from "lucide-react";
-import Link from "next/link";
 
 const PRIORITY_ORDER: Record<string, number> = { emergency: 0, high: 1, medium: 2, low: 3 };
 const PRIORITY_STYLES: Record<string, string> = {
-  emergency: "bg-red-500/10 text-red-600 border-red-200",
-  high: "bg-orange-500/10 text-orange-600 border-orange-200",
-  medium: "bg-amber-500/10 text-amber-700 border-amber-200",
+  emergency: "bg-red-500/10 text-red-700 border-red-200 dark:text-red-300 dark:border-red-900",
+  high: "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-300 dark:border-orange-900",
+  medium: "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-900",
   low: "bg-muted text-muted-foreground",
 };
 
@@ -46,6 +48,9 @@ async function getDashboardData(organizationId: string, userId: string) {
     leasePipeline,
     openMaintenance,
     unreadThreads,
+    openTasks,
+    overdueTasks,
+    unpaidBills,
   ] = await Promise.all([
     prisma.property.findMany({
       where: { organizationId, archivedAt: null },
@@ -57,7 +62,9 @@ async function getDashboardData(organizationId: string, userId: string) {
       orderBy: { endDate: "asc" },
       take: 5,
     }),
-    prisma.application.count({ where: { organizationId, status: { in: ["pending", "documents_requested", "under_review", "screening"] } } }),
+    prisma.application.count({
+      where: { organizationId, status: { in: ["pending", "documents_requested", "under_review", "screening"] } },
+    }),
     prisma.lease.findMany({
       where: { organizationId, status: "active" },
       include: {
@@ -96,6 +103,18 @@ async function getDashboardData(organizationId: string, userId: string) {
       orderBy: { lastMessageAt: "desc" },
       take: 5,
     }),
+    prisma.task.count({
+      where: { organizationId, status: { in: ["open", "in_progress", "waiting"] } },
+    }),
+    prisma.task.count({
+      where: { organizationId, status: { in: ["open", "in_progress", "waiting"] }, dueDate: { lt: new Date() } },
+    }),
+    prisma.bill.findMany({
+      where: { organizationId, status: { in: ["needs_review", "approved"] } },
+      select: { id: true, amount: true, dueDate: true, status: true, vendorName: true, vendor: { select: { name: true } }, property: { select: { name: true } } },
+      orderBy: { dueDate: "asc" },
+      take: 5,
+    }),
   ]);
 
   const totalExpected = activeRentLeases.reduce((s, lease) => s + Number(lease.rentAmount), 0);
@@ -110,6 +129,7 @@ async function getDashboardData(organizationId: string, userId: string) {
     lease: (typeof activeRentLeases)[number];
     totalOwed: number;
   }>();
+
   for (const lease of activeRentLeases) {
     const owed = calculateLeaseOutstandingBalance({
       rentPayments: lease.rentPayments,
@@ -125,15 +145,12 @@ async function getDashboardData(organizationId: string, userId: string) {
       tenantOverdueMap.set(tenant.id, { tenantId: tenant.id, tenant, lease, totalOwed: owed });
     }
   }
-  const overdueByTenant = Array.from(tenantOverdueMap.values())
-    .sort((a, b) => b.totalOwed - a.totalOwed);
-  const overdueTotal = overdueByTenant.reduce((sum, item) => sum + item.totalOwed, 0);
 
+  const overdueByTenant = Array.from(tenantOverdueMap.values()).sort((a, b) => b.totalOwed - a.totalOwed);
+  const overdueTotal = overdueByTenant.reduce((sum, item) => sum + item.totalOwed, 0);
   const sortedMaintenance = [...openMaintenance].sort(
     (a, b) => (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99)
   );
-
-  // Sort lease pipeline: tenant_signed first, then sent, then draft
   const signingOrder: Record<string, number> = { tenant_signed: 0, sent: 1, draft: 2 };
   const sortedPipeline = [...leasePipeline].sort(
     (a, b) => (signingOrder[a.signingStatus] ?? 99) - (signingOrder[b.signingStatus] ?? 99)
@@ -155,7 +172,21 @@ async function getDashboardData(organizationId: string, userId: string) {
     leasePipeline: sortedPipeline,
     openMaintenance: sortedMaintenance,
     unreadThreads,
+    openTasks,
+    overdueTasks,
+    unpaidBills,
+    unpaidBillsTotal: unpaidBills.reduce((s, b) => s + Number(b.amount), 0),
+    overdueBillsCount: unpaidBills.filter((b) => b.status === "approved" && b.dueDate != null && new Date(b.dueDate) < new Date()).length,
   };
+}
+
+function EmptyQueue({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
+      <CheckCircle2 className="h-4 w-4 text-primary" />
+      {label}
+    </div>
+  );
 }
 
 export default async function DashboardPage() {
@@ -166,495 +197,367 @@ export default async function DashboardPage() {
   const collectionPct = data.rent.totalExpected > 0
     ? Math.round((data.rent.totalCollected / data.rent.totalExpected) * 100)
     : 0;
-  const visibleOverdue = data.overdueByTenant.slice(0, 2);
-  const hiddenOverdue = data.overdueByTenant.slice(2);
-  const visiblePipeline = data.leasePipeline.slice(0, 3);
-  const hiddenPipeline = data.leasePipeline.slice(3);
-  const visibleMaintenance = data.openMaintenance.slice(0, 3);
-  const hiddenMaintenance = data.openMaintenance.slice(3);
-  const visibleThreads = data.unreadThreads.slice(0, 3);
-  const hiddenThreads = data.unreadThreads.slice(3);
+  const attentionCount =
+    data.overdueCount +
+    data.pendingApps +
+    data.vacancyCount +
+    data.leasePipeline.length +
+    data.openMaintenance.length +
+    data.unreadThreads.length +
+    data.expiringLeases.length +
+    data.openTasks;
+
+  const dateLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-        </p>
-      </div>
+    <div className="page-shell page-stack">
+      <section className="office-header">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <p className="page-kicker">Today's Office</p>
+            <h1 className="page-title mt-2">Portfolio command center</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              {dateLabel}. {attentionCount === 0
+                ? "Everything important is quiet right now."
+                : `${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention across rent, leasing, tasks, maintenance, and messages.`}
+            </p>
+          </div>
 
-      {/* Migration CTA */}
+          <div className="grid gap-3 sm:grid-cols-3 lg:w-[30rem]">
+            <div className="rounded-md border bg-background/55 p-3">
+              <p className="text-xs text-muted-foreground">Collected</p>
+              <p className="mt-1 font-mono text-lg font-semibold">{formatCurrency(data.rent.totalCollected)}</p>
+            </div>
+            <div className="rounded-md border bg-background/55 p-3">
+              <p className="text-xs text-muted-foreground">Collection</p>
+              <p className="mt-1 font-mono text-lg font-semibold">{collectionPct}%</p>
+            </div>
+            <div className="rounded-md border bg-background/55 p-3">
+              <p className="text-xs text-muted-foreground">Open items</p>
+              <p className="mt-1 font-mono text-lg font-semibold">{attentionCount}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {data.properties.total === 0 && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="flex items-center gap-5 py-5">
-            <div className="flex-shrink-0 flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">
-              <Sparkles className="h-6 w-6 text-primary" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm">Migrating from another platform?</p>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Upload a tenant ledger from Buildium, AppFolio, Cozy, Rentec, or any spreadsheet — AI sets everything up automatically.
-              </p>
-            </div>
-            <Link href="/migration" className="flex-shrink-0">
-              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline whitespace-nowrap">
-                Start migration <ArrowRight className="h-4 w-4" />
-              </span>
-            </Link>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="border-primary/20 bg-card">
-        <CardContent className="flex flex-col gap-4 py-5 md:flex-row md:items-center">
+        <div className="surface-panel flex flex-col gap-4 p-4 md:flex-row md:items-center md:p-5">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-            <Brain className="h-5 w-5 text-primary" />
+            <Sparkles className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-semibold text-sm">Open the financial advisor</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Review financial health, risk, rent opportunity, expenses, collections, and operating priorities.
+            <p className="font-semibold">Migrating from another platform?</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Upload a ledger from Buildium, AppFolio, Cozy, Rentec, or a spreadsheet. AI prepares the setup for review.
             </p>
           </div>
-          <Link href="/portfolio-analyzer" className="shrink-0">
-            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
-              Open advisor <ArrowRight className="h-4 w-4" />
-            </span>
+          <Link href="/migration" className="quiet-link">
+            Start migration <ArrowRight className="h-4 w-4" />
           </Link>
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      {/* KPI Cards */}
-      <div className="grid auto-rows-fr grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="h-32">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Building2 className="h-4 w-4" /> Properties
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{data.properties.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {data.properties.occupied} occupied units · {data.properties.vacant} vacant
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="h-32">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <DollarSign className="h-4 w-4" /> Rent this month
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{formatCurrency(data.rent.totalCollected)}</div>
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" />
-              {collectionPct}% of {formatCurrency(data.rent.totalExpected)} expected
-            </p>
-          </CardContent>
-        </Card>
-
-        <Link href="/vacancy" className="h-full">
-          <Card className="h-32 hover:border-primary/40 transition-colors cursor-pointer">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <DoorOpen className="h-4 w-4" /> Vacancies
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`text-3xl font-bold ${data.vacancyCount > 0 ? "text-amber-600" : ""}`}>
-                {data.vacancyCount}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {data.vacancyCount === 0 ? "All units occupied" : "vacant units"}
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/applications" className="h-full">
-          <Card className="h-32 hover:border-primary/40 transition-colors cursor-pointer">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <ClipboardList className="h-4 w-4" /> Applications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{data.pendingApps}</div>
-              <p className="text-xs text-muted-foreground mt-1">in progress</p>
-            </CardContent>
-          </Card>
+      <div className="surface-panel flex flex-col gap-4 p-4 md:flex-row md:items-center md:p-5">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+          <Brain className="h-5 w-5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Financial advisor</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review operating risk, collections, rent opportunity, expenses, and portfolio priorities.
+          </p>
+        </div>
+        <Link href="/portfolio-analyzer" className="quiet-link">
+          Open advisor <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
 
-      <div className="grid auto-rows-fr grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        {/* Overdue Payments */}
-        <Card className="h-32 overflow-visible">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="metric-card">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">Properties</p>
+            <Building2 className="h-4 w-4 text-primary" />
+          </div>
+          <p className="mt-4 font-mono text-3xl font-semibold">{data.properties.total}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {data.properties.occupied} occupied / {data.properties.vacant} vacant
+          </p>
+        </div>
+
+        <div className="metric-card">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">Rent this month</p>
+            <DollarSign className="h-4 w-4 text-primary" />
+          </div>
+          <p className="mt-4 font-mono text-3xl font-semibold">{formatCurrency(data.rent.totalCollected)}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <TrendingUp className="h-3 w-3" />
+            {collectionPct}% of {formatCurrency(data.rent.totalExpected)}
+          </p>
+        </div>
+
+        <Link href="/vacancy" className="metric-card block">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">Vacancies</p>
+            <DoorOpen className="h-4 w-4 text-primary" />
+          </div>
+          <p className={data.vacancyCount > 0 ? "mt-4 font-mono text-3xl font-semibold text-amber-700 dark:text-amber-300" : "mt-4 font-mono text-3xl font-semibold"}>
+            {data.vacancyCount}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{data.vacancyCount === 0 ? "All units occupied" : "units available"}</p>
+        </Link>
+
+        <Link href="/applications" className="metric-card block">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">Applications</p>
+            <ClipboardList className="h-4 w-4 text-primary" />
+          </div>
+          <p className="mt-4 font-mono text-3xl font-semibold">{data.pendingApps}</p>
+          <p className="mt-1 text-xs text-muted-foreground">active review</p>
+        </Link>
+
+        <Link href="/tasks" className="metric-card block">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-muted-foreground">Tasks</p>
+            <CheckSquare className="h-4 w-4 text-primary" />
+          </div>
+          <p className={`mt-4 font-mono text-3xl font-semibold ${data.overdueTasks > 0 ? "text-destructive" : ""}`}>
+            {data.openTasks}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {data.openTasks === 0 ? "all clear" : data.overdueTasks > 0 ? `${data.overdueTasks} overdue` : "open"}
+          </p>
+        </Link>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
               <AlertTriangle className="h-4 w-4 text-destructive" />
               Balance Due
+              {data.overdueCount > 0 && <Badge variant="destructive" className="ml-auto">{data.overdueCount}</Badge>}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             {data.overdueByTenant.length === 0 ? (
-              <>
-                <div className="text-3xl font-bold text-muted-foreground">{formatCurrency(0)}</div>
-                <p className="text-xs text-muted-foreground mt-1">All payments are current.</p>
-              </>
+              <EmptyQueue label="All tenant balances are current." />
             ) : (
               <>
-                <div className="text-3xl font-bold text-destructive">{formatCurrency(data.overdueTotal)}</div>
-                {false && visibleOverdue.map(({ tenant, lease, totalOwed }) => (
-                  <div key={tenant.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="flex items-end justify-between gap-4 rounded-md bg-muted/35 p-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Outstanding balance</p>
+                    <p className="mt-1 font-mono text-2xl font-semibold text-destructive">{formatCurrency(data.overdueTotal)}</p>
+                  </div>
+                  <Link href="/rent" className="quiet-link">Open rent <ArrowRight className="h-4 w-4" /></Link>
+                </div>
+                {data.overdueByTenant.slice(0, 4).map(({ tenant, lease, totalOwed }) => (
+                  <div key={tenant.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
                     <div className="min-w-0">
-                      <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
+                      <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary">
                         {tenant.firstName} {tenant.lastName}
                       </Link>
-                      <Link href={`/leases/${lease.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors block truncate">
-                        {lease.unit.property.name} · Unit {lease.unit.unitNumber}
+                      <Link href={`/leases/${lease.id}`} className="block truncate text-xs text-muted-foreground hover:text-primary">
+                        {lease.unit.property.name} - Unit {lease.unit.unitNumber}
                       </Link>
                     </div>
-                    <span className="text-destructive font-semibold shrink-0">{formatCurrency(totalOwed)}</span>
+                    <span className="shrink-0 font-mono text-sm font-semibold text-destructive">{formatCurrency(totalOwed)}</span>
                   </div>
                 ))}
-                {false && hiddenOverdue.length > 0 && (
-                  <details className="rounded-lg border px-3 py-2 text-sm">
-                    <summary className="cursor-pointer text-xs font-medium text-primary">
-                      Show {hiddenOverdue.length} more
-                    </summary>
-                    <div className="mt-3 space-y-3">
-                      {hiddenOverdue.map(({ tenant, lease, totalOwed }) => (
-                        <div key={tenant.id} className="flex items-center justify-between gap-3 text-sm">
-                          <div className="min-w-0">
-                            <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
-                              {tenant.firstName} {tenant.lastName}
-                            </Link>
-                            <Link href={`/leases/${lease.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors block truncate">
-                              {lease.unit.property.name} · Unit {lease.unit.unitNumber}
-                            </Link>
-                          </div>
-                          <span className="text-destructive font-semibold shrink-0">{formatCurrency(totalOwed)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )}
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    {data.overdueCount} tenant{data.overdueCount === 1 ? "" : "s"} with a balance
-                  </p>
-                  <details className="group relative">
-                    <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary hover:underline">
-                      Details <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg">
-                      <div className="mb-2 flex items-center justify-between border-b pb-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Outstanding balances</p>
-                        <p className="text-xs font-semibold text-destructive">{formatCurrency(data.overdueTotal)}</p>
-                      </div>
-                      <div className="max-h-80 space-y-3 overflow-y-auto">
-                        {data.overdueByTenant.map(({ tenant, lease, totalOwed }) => (
-                          <div key={tenant.id} className="flex items-center justify-between gap-3 text-sm">
-                            <div className="min-w-0">
-                              <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
-                                {tenant.firstName} {tenant.lastName}
-                              </Link>
-                              <Link href={`/leases/${lease.id}`} className="text-muted-foreground text-xs hover:text-primary transition-colors block truncate">
-                                {lease.unit.property.name} · Unit {lease.unit.unitNumber}
-                              </Link>
-                            </div>
-                            <span className="text-destructive font-semibold shrink-0">{formatCurrency(totalOwed)}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <Link href="/rent" className="mt-3 block border-t pt-2 text-xs font-medium text-primary hover:underline">
-                        View rent ledger →
-                      </Link>
-                    </div>
-                  </details>
-                </div>
               </>
-            )}
-            {false && data.overdueCount > 0 && (
-              <Link href="/rent" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
             )}
           </CardContent>
         </Card>
 
-        {/* Lease Pipeline */}
-        <Card className="h-32 overflow-visible">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <FileText className="h-4 w-4 text-blue-500" />
-              Lease Pipeline
-              {false && data.leasePipeline.length > 0 && (
-                <Badge variant="secondary" className="ml-auto">{data.leasePipeline.length}</Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data.leasePipeline.length === 0 ? (
-              <>
-                <div className="text-3xl font-bold">0</div>
-                <p className="text-xs text-muted-foreground mt-1">No pending leases.</p>
-              </>
-            ) : (
-              <>
-                <div className="text-3xl font-bold">{data.leasePipeline.length}</div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">leases need action</p>
-                  <details className="group relative">
-                    <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary hover:underline">
-                      Details <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg">
-                      <div className="mb-2 border-b pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Lease pipeline</div>
-                      <div className="max-h-80 space-y-3 overflow-y-auto">
-                        {data.leasePipeline.map((lease) => {
-                          const tenant = lease.tenants.find((lt) => lt.isPrimary)?.tenant ?? lease.tenants[0]?.tenant;
-                          return (
-                            <div key={lease.id} className="flex items-center justify-between gap-3 text-sm">
-                              <div className="min-w-0">
-                                <Link href={`/leases/${lease.id}`} className="font-medium hover:text-primary transition-colors">
-                                  {tenant ? `${tenant.firstName} ${tenant.lastName}` : "—"}
-                                </Link>
-                                <p className="text-muted-foreground text-xs truncate">
-                                  {lease.unit.property.name} · Unit {lease.unit.unitNumber}
-                                </p>
-                              </div>
-                              <span className="text-xs text-muted-foreground shrink-0 capitalize">{lease.signingStatus.replace("_", " ")}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <Link href="/leases" className="mt-3 block border-t pt-2 text-xs font-medium text-primary hover:underline">
-                        View leases →
-                      </Link>
-                    </div>
-                  </details>
-                </div>
-                {false && visiblePipeline.map((lease) => {
-                const tenant = lease.tenants.find((lt) => lt.isPrimary)?.tenant ?? lease.tenants[0]?.tenant;
-                return (
-                  <div key={lease.id} className="flex items-center justify-between text-sm">
-                    <div className="min-w-0">
-                      <Link href={`/leases/${lease.id}`} className="font-medium hover:text-primary transition-colors">
-                        {tenant ? `${tenant.firstName} ${tenant.lastName}` : "—"}
-                      </Link>
-                      <p className="text-muted-foreground text-xs">
-                        {lease.unit.property.name} · Unit {lease.unit.unitNumber}
-                      </p>
-                    </div>
-                    {lease.signingStatus === "tenant_signed" && (
-                      <span className="text-xs font-medium text-amber-600 shrink-0 ml-2">Needs your signature</span>
-                    )}
-                    {lease.signingStatus === "sent" && (
-                      <span className="text-xs text-blue-500 shrink-0 ml-2">Awaiting tenant</span>
-                    )}
-                    {lease.signingStatus === "draft" && (
-                      <span className="text-xs text-muted-foreground shrink-0 ml-2">Not sent</span>
-                    )}
-                  </div>
-                );
-              })}
-              </>
-            )}
-            {false && data.leasePipeline.length > 0 && (
-              <Link href="/leases" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Open Maintenance */}
-        <Card className="h-32 overflow-visible">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Wrench className="h-4 w-4 text-orange-500" />
+        <Card>
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wrench className={`h-4 w-4 ${data.openMaintenance.some((r) => r.priority === "emergency") ? "text-destructive" : "text-primary"}`} />
               Open Maintenance
-              {false && data.openMaintenance.length > 0 && (
-                <Badge variant="secondary" className="ml-auto">{data.openMaintenance.length}</Badge>
+              {data.openMaintenance.some((r) => r.priority === "emergency") && (
+                <Badge variant="destructive" className="ml-1 text-xs">Emergency</Badge>
               )}
+              {data.openMaintenance.length > 0 && <Badge variant="secondary" className="ml-auto">{data.openMaintenance.length}</Badge>}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             {data.openMaintenance.length === 0 ? (
-              <>
-                <div className="text-3xl font-bold">0</div>
-                <p className="text-xs text-muted-foreground mt-1">No open maintenance requests.</p>
-              </>
+              <EmptyQueue label="No open maintenance requests." />
             ) : (
-              <>
-                <div className="text-3xl font-bold">{data.openMaintenance.length}</div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">open requests</p>
-                  <details className="group relative">
-                    <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary hover:underline">
-                      Details <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg">
-                      <div className="mb-2 border-b pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Open maintenance</div>
-                      <div className="max-h-80 space-y-3 overflow-y-auto">
-                        {data.openMaintenance.map((req) => (
-                          <div key={req.id} className="flex items-start justify-between gap-3 text-sm">
-                            <div className="min-w-0">
-                              <Link href={`/maintenance/${req.id}`} className="font-medium hover:text-primary transition-colors line-clamp-1">
-                                {req.title}
-                              </Link>
-                              {req.unit && (
-                                <p className="text-muted-foreground text-xs truncate">
-                                  {req.unit.property.name} · Unit {req.unit.unitNumber}
-                                </p>
-                              )}
-                            </div>
-                            <Badge className={`text-xs border shrink-0 ${PRIORITY_STYLES[req.priority] ?? ""}`}>
-                              {req.priority}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                      <Link href="/maintenance" className="mt-3 block border-t pt-2 text-xs font-medium text-primary hover:underline">
-                        View maintenance →
-                      </Link>
-                    </div>
-                  </details>
-                </div>
-                {false && visibleMaintenance.map((req) => (
-                <div key={req.id} className="flex items-start justify-between text-sm gap-2">
+              data.openMaintenance.slice(0, 5).map((req) => (
+                <div key={req.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2.5">
                   <div className="min-w-0">
-                    <Link href={`/maintenance/${req.id}`} className="font-medium hover:text-primary transition-colors line-clamp-1">
+                    <Link href={`/maintenance/${req.id}`} className="line-clamp-1 font-medium hover:text-primary">
                       {req.title}
                     </Link>
                     {req.unit && (
-                      <p className="text-muted-foreground text-xs">
-                        {req.unit.property.name} · Unit {req.unit.unitNumber}
+                      <p className="truncate text-xs text-muted-foreground">
+                        {req.unit.property.name} - Unit {req.unit.unitNumber}
                       </p>
                     )}
                   </div>
-                  <Badge className={`text-xs border shrink-0 ${PRIORITY_STYLES[req.priority] ?? ""}`}>
+                  <Badge className={`shrink-0 border text-xs ${PRIORITY_STYLES[req.priority] ?? ""}`}>
                     {req.priority}
                   </Badge>
                 </div>
-              ))}
-              </>
-            )}
-            {false && data.openMaintenance.length > 0 && (
-              <Link href="/maintenance" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
+              ))
             )}
           </CardContent>
         </Card>
 
-        {/* Tenant Messages */}
-        <Card className="h-32 overflow-visible">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+        <Card>
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-4 w-4 text-primary" />
+              Lease Pipeline
+              {data.leasePipeline.length > 0 && <Badge variant="secondary" className="ml-auto">{data.leasePipeline.length}</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.leasePipeline.length === 0 ? (
+              <EmptyQueue label="No pending leases." />
+            ) : (
+              data.leasePipeline.slice(0, 5).map((lease) => {
+                const tenant = lease.tenants.find((lt) => lt.isPrimary)?.tenant ?? lease.tenants[0]?.tenant;
+                return (
+                  <div key={lease.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+                    <div className="min-w-0">
+                      <Link href={`/leases/${lease.id}`} className="font-medium hover:text-primary">
+                        {tenant ? `${tenant.firstName} ${tenant.lastName}` : "No tenant"}
+                      </Link>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {lease.unit.property.name} - Unit {lease.unit.unitNumber}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs capitalize text-muted-foreground">
+                      {lease.signingStatus.replace("_", " ")}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
               <MessageSquare className="h-4 w-4 text-primary" />
               Tenant Messages
-              {false && data.unreadThreads.length > 0 && (
-                <Badge variant="destructive" className="ml-auto">{data.unreadThreads.length}</Badge>
+              {data.unreadThreads.length > 0 && <Badge variant="destructive" className="ml-auto">{data.unreadThreads.length}</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.unreadThreads.length === 0 ? (
+              <EmptyQueue label="No unread messages." />
+            ) : (
+              data.unreadThreads.slice(0, 5).map((thread) => {
+                const latest = thread.messages[0];
+                return (
+                  <div key={thread.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2.5">
+                    <div className="min-w-0">
+                      <Link href="/messages" className="line-clamp-1 font-medium hover:text-primary">
+                        {thread.subject}
+                      </Link>
+                      {latest && <p className="line-clamp-1 text-xs text-muted-foreground">{latest.body}</p>}
+                    </div>
+                    {latest && <span className="shrink-0 text-xs text-muted-foreground">{formatRelativeTime(latest.createdAt)}</span>}
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Receipt className="h-4 w-4 text-primary" />
+              Bills & Payables
+              {data.unpaidBills.length > 0 && (
+                <Badge variant={data.overdueBillsCount > 0 ? "destructive" : "secondary"} className="ml-auto">
+                  {data.unpaidBills.length}
+                </Badge>
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            {data.unreadThreads.length === 0 ? (
-              <>
-                <div className="text-3xl font-bold">0</div>
-                <p className="text-xs text-muted-foreground mt-1">No unread messages.</p>
-              </>
+          <CardContent className="space-y-3">
+            {data.unpaidBills.length === 0 ? (
+              <EmptyQueue label="No outstanding bills." />
             ) : (
               <>
-                <div className="text-3xl font-bold text-destructive">{data.unreadThreads.length}</div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">unread messages</p>
-                  <details className="group relative">
-                    <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary hover:underline">
-                      Details <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
-                    </summary>
-                    <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg">
-                      <div className="mb-2 border-b pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Unread messages</div>
-                      <div className="max-h-80 space-y-3 overflow-y-auto">
-                        {data.unreadThreads.map((thread) => {
-                          const latest = thread.messages[0];
-                          return (
-                            <div key={thread.id} className="flex items-start justify-between gap-3 text-sm">
-                              <div className="min-w-0">
-                                <Link href="/messages" className="font-medium hover:text-primary transition-colors line-clamp-1">
-                                  {thread.subject}
-                                </Link>
-                                {latest && <p className="text-muted-foreground text-xs line-clamp-1">{latest.body}</p>}
-                              </div>
-                              {latest && <span className="text-xs text-muted-foreground shrink-0">{formatRelativeTime(latest.createdAt)}</span>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <Link href="/messages" className="mt-3 block border-t pt-2 text-xs font-medium text-primary hover:underline">
-                        View messages →
-                      </Link>
-                    </div>
-                  </details>
-                </div>
-                {false && visibleThreads.map((thread) => {
-                const latest = thread.messages[0];
-                return (
-                  <div key={thread.id} className="flex items-start justify-between text-sm gap-2">
-                    <div className="min-w-0">
-                      <Link href={`/messages`} className="font-medium hover:text-primary transition-colors line-clamp-1">
-                        {thread.subject}
-                      </Link>
-                      {latest && (
-                        <p className="text-muted-foreground text-xs line-clamp-1">{latest.body}</p>
-                      )}
-                    </div>
-                    {latest && (
-                      <span className="text-xs text-muted-foreground shrink-0">{formatRelativeTime(latest.createdAt)}</span>
-                    )}
+                <div className="flex items-end justify-between gap-4 rounded-md bg-muted/35 p-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total unpaid</p>
+                    <p className="mt-1 font-mono text-2xl font-semibold">{formatCurrency(data.unpaidBillsTotal)}</p>
                   </div>
-                );
-              })}
+                  <Link href="/bills" className="quiet-link">Open bills <ArrowRight className="h-4 w-4" /></Link>
+                </div>
+                {data.unpaidBills.slice(0, 4).map((b) => {
+                  const overdue = b.status === "approved" && b.dueDate != null && new Date(b.dueDate) < new Date();
+                  const label = b.vendor?.name ?? b.vendorName ?? "Unknown";
+                  return (
+                    <div key={b.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="font-medium">{label}</p>
+                        {b.property && <p className="truncate text-xs text-muted-foreground">{b.property.name}</p>}
+                        {b.dueDate && (
+                          <p className={`text-xs ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+                            {overdue ? "Overdue · " : "Due "}
+                            {new Date(b.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </p>
+                        )}
+                      </div>
+                      <span className="shrink-0 font-mono text-sm font-semibold">{formatCurrency(Number(b.amount))}</span>
+                    </div>
+                  );
+                })}
               </>
-            )}
-            {false && data.unreadThreads.length > 0 && (
-              <Link href="/messages" className="text-xs text-primary hover:underline block mt-2">View all →</Link>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Expiring Leases */}
       {data.expiringLeases.length > 0 && (
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Clock className="h-4 w-4 text-amber-500" />
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarClock className="h-4 w-4 text-primary" />
               Leases Expiring Soon
               <Badge variant="secondary" className="ml-auto">{data.expiringLeases.length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {data.expiringLeases.map((l) => {
-                const tenant = l.tenants[0]?.tenant;
-                const days = daysUntil(l.endDate);
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {data.expiringLeases.map((lease) => {
+                const tenant = lease.tenants[0]?.tenant;
+                const days = daysUntil(lease.endDate);
                 return (
-                  <div key={l.id} className="flex items-center justify-between text-sm border rounded-lg px-3 py-2">
-                    <div>
+                  <div key={lease.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+                    <div className="min-w-0">
                       {tenant ? (
-                        <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary transition-colors">
+                        <Link href={`/tenants/${tenant.id}`} className="font-medium hover:text-primary">
                           {tenant.firstName} {tenant.lastName}
                         </Link>
                       ) : (
-                        <p className="font-medium">Unknown Tenant</p>
+                        <p className="font-medium">Unknown tenant</p>
                       )}
-                      <p className="text-muted-foreground text-xs">{l.unit.property.name} · Unit {l.unit.unitNumber}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {lease.unit.property.name} - Unit {lease.unit.unitNumber}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                       <Badge variant={days !== null && days <= 30 ? "destructive" : "secondary"} className="text-xs">
                         {days}d
                       </Badge>
-                      <Link href={`/renewals/${l.id}`} className="text-xs text-primary hover:underline">Renew →</Link>
+                      <Link href={`/renewals/${lease.id}`} className="quiet-link text-xs">
+                        Renew
+                      </Link>
                     </div>
                   </div>
                 );

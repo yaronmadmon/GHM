@@ -17,8 +17,8 @@ export function CopyLinkButton({ path }: { path: string }) {
   }
 
   return (
-    <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0" onClick={handleCopy}>
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+    <Button size="sm" variant="outline" className="shrink-0 gap-1.5" onClick={handleCopy}>
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
       {copied ? "Copied!" : "Copy"}
     </Button>
   );

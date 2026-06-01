@@ -102,7 +102,7 @@ export function InviteButton({ properties }: { properties: Property[] }) {
               )}
 
               <div className="border rounded-lg p-4 space-y-3">
-                <p className="text-sm font-medium flex items-center gap-2"><Mail className="h-4 w-4" /> Send via Email</p>
+                <p className="flex items-center gap-2 text-base font-medium"><Mail className="h-4 w-4" /> Send via Email</p>
                 <div className="space-y-1.5">
                   <Label>Applicant Name</Label>
                   <Input value={emailName} onChange={(e) => setEmailName(e.target.value)} placeholder="Jane Smith" />
@@ -118,7 +118,7 @@ export function InviteButton({ properties }: { properties: Property[] }) {
 
               <div className="relative flex items-center gap-2">
                 <div className="flex-1 border-t" />
-                <span className="text-xs text-muted-foreground">or</span>
+                <span className="text-[0.95rem] text-muted-foreground">or</span>
                 <div className="flex-1 border-t" />
               </div>
 
@@ -129,13 +129,13 @@ export function InviteButton({ properties }: { properties: Property[] }) {
           ) : (
             <div className="space-y-4">
               {emailWarning && (
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-base text-amber-800">
                   ⚠ {emailWarning}
                 </div>
               )}
               <div className="p-3 bg-muted rounded-lg">
-                <p className="text-xs text-muted-foreground mb-1">Application link — share this with the applicant</p>
-                <p className="text-sm font-mono break-all">{generatedUrl}</p>
+                <p className="mb-1 text-[0.95rem] text-muted-foreground">Application link — share this with the applicant</p>
+                <p className="break-all font-mono text-base">{generatedUrl}</p>
               </div>
               <div className="flex gap-2">
                 <Button onClick={copyUrl} className="flex-1 gap-2">

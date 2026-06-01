@@ -9,6 +9,8 @@ interface AppShellProps {
   children: React.ReactNode;
   pendingApplications?: number;
   unreadMessages?: number;
+  openTasks?: number;
+  unpaidBills?: number;
 }
 
 function ProcessingBar() {
@@ -21,25 +23,27 @@ function ProcessingBar() {
   );
 }
 
-export function AppShell({ children, pendingApplications, unreadMessages }: AppShellProps) {
+export function AppShell({ children, pendingApplications, unreadMessages, openTasks, unpaidBills }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
     <MigrationProvider>
       <ProcessingBar />
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex h-screen overflow-hidden bg-background">
         {/* Sidebar: hidden on mobile, visible on md+ */}
         <div className="hidden md:flex">
           <Sidebar
             pendingApplications={pendingApplications}
             unreadMessages={unreadMessages}
+            openTasks={openTasks}
+            unpaidBills={unpaidBills}
             collapsed={collapsed}
             onToggle={() => setCollapsed((c) => !c)}
           />
         </div>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto bg-background pb-16 md:pb-0">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pb-16 md:pb-0">
           {children}
         </main>
 

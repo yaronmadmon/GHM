@@ -55,17 +55,19 @@ export default function RegisterPage() {
   }
 
   return (
-    <Card className="w-full max-w-md mx-4">
-      <CardHeader className="text-center">
-        <div className="flex justify-center mb-2">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Building2 className="h-6 w-6 text-primary" />
+    <Card className="w-full max-w-lg">
+      <CardHeader className="space-y-4 px-6 pt-8 text-center">
+        <div className="flex justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg border bg-card text-primary shadow-sm">
+            <Building2 className="h-6 w-6" />
           </div>
         </div>
-        <CardTitle className="text-2xl">Create your account</CardTitle>
-        <CardDescription>Start managing your properties today</CardDescription>
+        <div>
+          <CardTitle className="font-heading text-4xl">Create your account</CardTitle>
+          <CardDescription className="mt-2">Start with your company and first workspace.</CardDescription>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-6 pb-8">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Your name</Label>
@@ -84,12 +86,12 @@ export default function RegisterPage() {
             <Input id="password" name="password" type="password" placeholder="Min. 8 characters" minLength={8} required />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Creating account…" : "Create account"}
+            {loading ? "Creating account..." : "Create account"}
           </Button>
         </form>
-        <p className="text-center text-sm text-muted-foreground mt-4">
+        <p className="mt-5 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link href="/login" className="text-primary hover:underline font-medium">
+          <Link href="/login" className="font-medium text-primary hover:underline">
             Sign in
           </Link>
         </p>

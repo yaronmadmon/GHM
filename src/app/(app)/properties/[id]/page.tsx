@@ -1,21 +1,21 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { redirect, notFound } from "next/navigation";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building2, ArrowLeft, MapPin, Wrench, Plus, Users, BarChart2 } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { Activity, ArrowLeft, BarChart2, Building2, MapPin, Plus, Users, Wrench } from "lucide-react";
+import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { PropertyDeleteButton } from "@/components/properties/PropertyActions";
 import { PropertyPhotoGallery } from "@/components/properties/PropertyPhotoGallery";
 import { PropertyExpensesEditor } from "@/components/properties/PropertyExpensesEditor";
 import { PropertyInfoEditor } from "@/components/properties/PropertyInfoEditor";
 
 const STATUS_STYLES: Record<string, string> = {
-  occupied: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
-  vacant: "bg-amber-500/10 text-amber-700 border-amber-200",
-  under_maintenance: "bg-red-500/10 text-red-600 border-red-200",
+  occupied: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-300 dark:border-emerald-900",
+  vacant: "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-900",
+  under_maintenance: "bg-red-500/10 text-red-700 border-red-200 dark:text-red-300 dark:border-red-900",
 };
 
 export default async function PropertyDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,7 +23,8 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
   const session = await getSession();
   if (!session?.user) redirect("/login");
 
-  const property = await prisma.property.findFirst({
+  const [property, activityEvents] = await Promise.all([
+    prisma.property.findFirst({
     where: { id, organizationId: session.user.organizationId },
     include: {
       photos: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
@@ -39,11 +40,32 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
       },
       _count: { select: { maintenanceRequests: { where: { status: { in: ["open", "in_progress"] } } } } },
     },
-  });
+  }),
+    prisma.activityEvent.findMany({
+      where: { organizationId: session.user.organizationId, entityType: "property", entityId: id },
+      include: { actor: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+    }),
+  ]);
 
   if (!property) notFound();
 
-  const occupiedUnits = property.units.filter((u) => u.status === "occupied").length;
+  const occupiedUnits = property.units.filter((unit) => unit.status === "occupied").length;
+  const vacantUnits = property.units.length - occupiedUnits;
+  const occupancyPct = property.units.length > 0 ? Math.round((occupiedUnits / property.units.length) * 100) : 0;
+  const activeTenants = property.units.flatMap((unit) => {
+    const activeLease = unit.leases[0];
+    if (!activeLease) return [];
+    return activeLease.tenants.map((lt) => ({
+      tenant: lt.tenant,
+      unitNumber: unit.unitNumber,
+      leaseId: activeLease.id,
+      rentAmount: activeLease.rentAmount,
+      lastPayment: activeLease.rentPayments[0],
+    }));
+  });
+
   const propertyInfo = {
     id: property.id,
     name: property.name,
@@ -60,29 +82,62 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
-      {/* Header */}
+    <div className="page-shell max-w-6xl space-y-5">
       <div className="flex items-center gap-3">
         <Link href="/properties">
-          <Button variant="ghost" size="sm" className="gap-1"><ArrowLeft className="h-4 w-4" />Back</Button>
+          <Button variant="ghost" size="sm" className="gap-1">
+            <ArrowLeft className="h-4 w-4" />
+            Properties
+          </Button>
         </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-xl md:text-2xl font-semibold truncate">{property.name}</h1>
-          <p className="text-sm text-muted-foreground flex items-center gap-1">
-            <MapPin className="h-3.5 w-3.5 shrink-0" />
-            {property.addressLine1}, {property.city}, {property.state} {property.zip}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <PropertyInfoEditor property={propertyInfo} />
-          <Badge className={`border ${STATUS_STYLES[property.status] ?? ""}`}>{property.status}</Badge>
-        </div>
       </div>
 
-      {/* Photo gallery */}
+      <section className="office-header">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="page-kicker">Property file</p>
+              <Badge className={`border text-xs ${STATUS_STYLES[property.status] ?? ""}`}>{property.status.replace("_", " ")}</Badge>
+            </div>
+            <h1 className="page-title mt-2 truncate">{property.name}</h1>
+            <p className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+              <MapPin className="h-4 w-4 shrink-0 text-primary" />
+              {property.addressLine1}, {property.city}, {property.state} {property.zip}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <PropertyInfoEditor property={propertyInfo} />
+            <Link href={`/properties/${id}/report`}>
+              <Button variant="outline" size="sm" className="gap-2">
+                <BarChart2 className="h-4 w-4" />
+                Report
+              </Button>
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-4">
+          <div className="rounded-md border bg-background/55 p-3">
+            <p className="text-xs text-muted-foreground">Units</p>
+            <p className="mt-1 font-mono text-xl font-semibold">{property.units.length}</p>
+          </div>
+          <div className="rounded-md border bg-background/55 p-3">
+            <p className="text-xs text-muted-foreground">Occupancy</p>
+            <p className="mt-1 font-mono text-xl font-semibold">{occupancyPct}%</p>
+          </div>
+          <div className="rounded-md border bg-background/55 p-3">
+            <p className="text-xs text-muted-foreground">Vacant</p>
+            <p className="mt-1 font-mono text-xl font-semibold text-amber-700 dark:text-amber-300">{vacantUnits}</p>
+          </div>
+          <div className="rounded-md border bg-background/55 p-3">
+            <p className="text-xs text-muted-foreground">Open issues</p>
+            <p className="mt-1 font-mono text-xl font-semibold">{property._count.maintenanceRequests}</p>
+          </div>
+        </div>
+      </section>
+
       <PropertyPhotoGallery propertyId={id} initialPhotos={property.photos} />
 
-      {/* Operating Expenses */}
       <PropertyExpensesEditor
         propertyId={id}
         initialExpenses={property.expenses ? {
@@ -99,43 +154,22 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
         } : null}
       />
 
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold">{property.units.length}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Total units</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-emerald-600">{occupiedUnits}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Occupied</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-amber-600">{property._count.maintenanceRequests}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Open issues</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Units */}
       <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Building2 className="h-4 w-4" />Units ({property.units.length})
+        <CardHeader className="flex flex-row items-center justify-between border-b pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Building2 className="h-4 w-4 text-primary" />
+            Units ({property.units.length})
           </CardTitle>
           <Link href={`/properties/${id}/units/new`}>
             <Button size="sm" variant="outline" className="h-7 gap-1 text-xs">
-              <Plus className="h-3 w-3" />Add unit
+              <Plus className="h-3 w-3" />
+              Add unit
             </Button>
           </Link>
         </CardHeader>
         <CardContent className="p-0">
           {property.units.length === 0 ? (
-            <p className="text-sm text-muted-foreground px-4 pb-4">No units yet.</p>
+            <p className="px-4 pb-4 text-sm text-muted-foreground">No units yet.</p>
           ) : (
             <div className="divide-y">
               {property.units.map((unit) => {
@@ -143,34 +177,34 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
                 const primaryTenant = activeLease?.tenants.find((lt) => lt.isPrimary)?.tenant ?? activeLease?.tenants[0]?.tenant;
                 const lastPayment = activeLease?.rentPayments[0];
                 return (
-                  <div key={unit.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors">
-                    <div>
-                      <p className="font-medium text-sm">Unit {unit.unitNumber}</p>
+                  <div key={unit.id} className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-muted/30">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Unit {unit.unitNumber}</p>
                       {unit.bedrooms != null && (
                         <p className="text-xs text-muted-foreground">
-                          {String(unit.bedrooms)}bd · {String(unit.bathrooms)}ba
+                          {String(unit.bedrooms)}bd / {String(unit.bathrooms)}ba
                         </p>
                       )}
                     </div>
                     <div className="text-right">
                       {primaryTenant ? (
                         <>
-                          <Link href={`/tenants/${primaryTenant.id}`} className="text-sm font-medium text-primary hover:underline flex items-center gap-1 justify-end">
+                          <Link href={`/tenants/${primaryTenant.id}`} className="flex items-center justify-end gap-1 text-sm font-medium text-primary hover:underline">
                             <Users className="h-3.5 w-3.5" />
                             {primaryTenant.firstName} {primaryTenant.lastName}
                           </Link>
                           {activeLease ? (
-                            <Link href={`/leases/${activeLease.id}`} className="text-xs text-muted-foreground hover:text-primary transition-colors">
+                            <Link href={`/leases/${activeLease.id}`} className="text-xs text-muted-foreground hover:text-primary">
                               {formatCurrency(Number(activeLease.rentAmount))}/mo
-                              {lastPayment && ` · ${lastPayment.status}`}
+                              {lastPayment && ` - ${lastPayment.status}`}
                             </Link>
                           ) : null}
                         </>
                       ) : (
                         <div className="flex flex-col items-end gap-1">
-                          <Badge className={`text-xs border ${STATUS_STYLES[unit.status] ?? ""}`}>{unit.status}</Badge>
+                          <Badge className={`border text-xs ${STATUS_STYLES[unit.status] ?? ""}`}>{unit.status.replace("_", " ")}</Badge>
                           <Link href={`/leases/new?propertyId=${id}&unitId=${unit.id}`} className="text-xs text-primary hover:underline">
-                            + Add lease
+                            Add lease
                           </Link>
                         </div>
                       )}
@@ -183,101 +217,123 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
         </CardContent>
       </Card>
 
-      {/* Tenants */}
-      {(() => {
-        const tenants = property.units.flatMap((unit) => {
-          const activeLease = unit.leases[0];
-          if (!activeLease) return [];
-          return activeLease.tenants.map((lt) => ({
-            tenant: lt.tenant,
-            unitNumber: unit.unitNumber,
-            leaseId: activeLease.id,
-            rentAmount: activeLease.rentAmount,
-            lastPayment: activeLease.rentPayments[0],
-          }));
-        });
-        if (tenants.length === 0) return null;
-        return (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Users className="h-4 w-4" />Tenants ({tenants.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y">
-                {tenants.map(({ tenant, unitNumber, leaseId, rentAmount, lastPayment }) => (
-                  <div key={tenant.id} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
-                    <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
-                      {tenant.firstName[0]}{tenant.lastName[0]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <Link href={`/tenants/${tenant.id}`} className="font-medium text-sm hover:text-primary transition-colors block">
-                        {tenant.firstName} {tenant.lastName}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">Unit {unitNumber} · {formatCurrency(Number(rentAmount))}/mo</p>
-                    </div>
-                    <div className="text-right shrink-0 space-y-1">
-                      {lastPayment && (
-                        <Badge
-                          variant={lastPayment.status === "paid" ? "secondary" : lastPayment.status === "overdue" ? "destructive" : "outline"}
-                          className="text-xs block"
-                        >
-                          {lastPayment.status}
-                        </Badge>
-                      )}
-                      <Link href={`/leases/${leaseId}`} className="text-xs text-muted-foreground hover:text-primary transition-colors block">
-                        View lease
-                      </Link>
-                    </div>
+      {activeTenants.length > 0 && (
+        <Card>
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="h-4 w-4 text-primary" />
+              Tenants ({activeTenants.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {activeTenants.map(({ tenant, unitNumber, leaseId, rentAmount, lastPayment }) => (
+                <div key={tenant.id} className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-muted/30">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                    {tenant.firstName[0]}{tenant.lastName[0]}
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
+                  <div className="min-w-0 flex-1">
+                    <Link href={`/tenants/${tenant.id}`} className="block text-sm font-medium hover:text-primary">
+                      {tenant.firstName} {tenant.lastName}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">Unit {unitNumber} - {formatCurrency(Number(rentAmount))}/mo</p>
+                  </div>
+                  <div className="shrink-0 space-y-1 text-right">
+                    {lastPayment && (
+                      <Badge
+                        variant={lastPayment.status === "paid" ? "secondary" : lastPayment.status === "overdue" ? "destructive" : "outline"}
+                        className="text-xs"
+                      >
+                        {lastPayment.status}
+                      </Badge>
+                    )}
+                    <Link href={`/leases/${leaseId}`} className="block text-xs text-muted-foreground hover:text-primary">
+                      View lease
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Property details */}
       <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-medium">Property Details</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between border-b pb-3">
+          <CardTitle className="text-base">Property Details</CardTitle>
           <PropertyInfoEditor property={propertyInfo} variant="ghost" />
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 text-sm">
-          <div><p className="text-muted-foreground text-xs">Type</p><p className="capitalize">{property.propertyType.replace("_", " ")}</p></div>
-          <div><p className="text-muted-foreground text-xs">Status</p><p className="capitalize">{property.status.replace("_", " ")}</p></div>
+        <CardContent className="grid grid-cols-2 gap-4 text-sm">
+          <div><p className="text-xs text-muted-foreground">Type</p><p className="capitalize">{property.propertyType.replace("_", " ")}</p></div>
+          <div><p className="text-xs text-muted-foreground">Status</p><p className="capitalize">{property.status.replace("_", " ")}</p></div>
           {property.purchasePrice != null && (
-            <div><p className="text-muted-foreground text-xs">Purchase Price</p><p>{formatCurrency(Number(property.purchasePrice))}</p></div>
+            <div><p className="text-xs text-muted-foreground">Purchase Price</p><p>{formatCurrency(Number(property.purchasePrice))}</p></div>
           )}
           {property.purchaseDate && (
-            <div><p className="text-muted-foreground text-xs">Purchase Date</p><p>{formatDate(property.purchaseDate)}</p></div>
+            <div><p className="text-xs text-muted-foreground">Purchase Date</p><p>{formatDate(property.purchaseDate)}</p></div>
           )}
           {property.description && (
-            <div className="col-span-2"><p className="text-muted-foreground text-xs">Notes</p><p>{property.description}</p></div>
+            <div className="col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p>{property.description}</p></div>
           )}
         </CardContent>
       </Card>
 
-      {/* Quick links */}
       <div className="flex flex-wrap gap-2">
         <Link href={`/maintenance?property=${id}`}>
           <Button variant="outline" size="sm" className="gap-2">
-            <Wrench className="h-4 w-4" />View maintenance
+            <Wrench className="h-4 w-4" />
+            View maintenance
           </Button>
         </Link>
         <Link href={`/leases/new?propertyId=${id}`}>
           <Button variant="outline" size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />Create lease
-          </Button>
-        </Link>
-        <Link href={`/properties/${id}/report`}>
-          <Button variant="outline" size="sm" className="gap-2">
-            <BarChart2 className="h-4 w-4" />Property Report
+            <Plus className="h-4 w-4" />
+            Create lease
           </Button>
         </Link>
         <PropertyDeleteButton propertyId={id} propertyName={property.name} />
       </div>
+
+      <Card>
+        <CardHeader className="border-b pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Activity className="h-4 w-4 text-primary" />
+            Activity Timeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-3">
+          {activityEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {activityEvents.map((event) => {
+                const labelMap: Record<string, string> = {
+                  payment_recorded: "Payment recorded",
+                  status_changed: "Status changed",
+                  created: "Record created",
+                  updated: "Record updated",
+                };
+                const label = labelMap[event.eventType] ??
+                  event.eventType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                return (
+                  <div key={event.id} className="flex gap-3 border-b py-2 text-sm last:border-0">
+                    <div className="w-36 shrink-0">
+                      <p className="text-muted-foreground">{formatDate(event.createdAt)}</p>
+                      <p className="text-xs text-muted-foreground">{formatRelativeTime(event.createdAt)}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground capitalize">
+                        {event.entityType}{event.actor?.name ? ` · ${event.actor.name}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

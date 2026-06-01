@@ -173,8 +173,8 @@ function parseOccupants(value: unknown): Occupant[] {
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div className="min-w-0">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="truncate text-sm font-medium">{value === null || value === undefined || value === "" ? "--" : value}</p>
+      <p className="text-[0.95rem] leading-snug text-muted-foreground">{label}</p>
+      <p className="truncate text-[1.05rem] font-semibold leading-7">{value === null || value === undefined || value === "" ? "--" : value}</p>
     </div>
   );
 }
@@ -182,8 +182,8 @@ function Field({ label, value }: { label: string; value: string | number | null 
 function LongField({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm">{value || "--"}</p>
+      <p className="text-[0.95rem] leading-snug text-muted-foreground">{label}</p>
+      <p className="text-[1.05rem] leading-7">{value || "--"}</p>
     </div>
   );
 }
@@ -428,14 +428,14 @@ export default function ApplicationDetailPage() {
         </Link>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-xl font-semibold md:text-2xl">
+            <h1 className="truncate font-heading text-3xl font-semibold leading-tight md:text-4xl">
               {app.firstName} {app.middleName ? `${app.middleName} ` : ""}{app.lastName}
             </h1>
             <Badge className={`border capitalize ${STATUS_COLOR[app.status] ?? "bg-muted"}`}>
               {app.status.replace("_", " ")}
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             {app.property ? (
               <Link href={`/properties/${app.property.id}`} className="hover:text-primary">
                 {app.property.name}
@@ -459,38 +459,38 @@ export default function ApplicationDetailPage() {
       <div className="mb-5 rounded-xl border bg-primary/5 p-4">
         <div className="grid gap-3 md:grid-cols-4">
           <div>
-            <p className="text-xs text-muted-foreground">Submitted</p>
-            <p className="font-medium">{shortDate(app.createdAt)}</p>
+            <p className="text-[0.95rem] text-muted-foreground">Submitted</p>
+            <p className="text-lg font-semibold">{shortDate(app.createdAt)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Desired move-in</p>
-            <p className="font-medium">{shortDate(app.desiredMoveInDate)}</p>
+            <p className="text-[0.95rem] text-muted-foreground">Desired move-in</p>
+            <p className="text-lg font-semibold">{shortDate(app.desiredMoveInDate)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Household income</p>
-            <p className="font-medium">{totalIncome > 0 ? formatCurrency(totalIncome) : "--"}</p>
+            <p className="text-[0.95rem] text-muted-foreground">Household income</p>
+            <p className="text-lg font-semibold">{totalIncome > 0 ? formatCurrency(totalIncome) : "--"}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Advisor recommendation</p>
-            <p className="font-medium">{recommendation.label}</p>
+            <p className="text-[0.95rem] text-muted-foreground">Advisor recommendation</p>
+            <p className="text-lg font-semibold">{recommendation.label}</p>
           </div>
         </div>
       </div>
 
       {signUrl && (
-        <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
+        <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 p-4 text-base">
           <p className="mb-1 flex items-center gap-2 font-medium text-blue-800">
             <KeyRound className="h-4 w-4" />
             Lease signing link
           </p>
-          <a href={signUrl} target="_blank" rel="noreferrer" className="break-all font-mono text-xs text-blue-700 hover:underline">
+          <a href={signUrl} target="_blank" rel="noreferrer" className="break-all font-mono text-[0.95rem] text-blue-700 hover:underline">
             {signUrl}
           </a>
         </div>
       )}
 
       {guardErrors.length > 0 && (
-        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-base text-red-800">
           {guardErrors.map((error) => <p key={error}>{error}</p>)}
         </div>
       )}
@@ -499,8 +499,8 @@ export default function ApplicationDetailPage() {
         <div className="space-y-5">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <User className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <User className="h-5 w-5" />
                 Applicant
               </CardTitle>
             </CardHeader>
@@ -516,8 +516,8 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Briefcase className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Briefcase className="h-5 w-5" />
                 Income And Employment
               </CardTitle>
             </CardHeader>
@@ -537,8 +537,8 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Home className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Home className="h-5 w-5" />
                 Residence And Household
               </CardTitle>
             </CardHeader>
@@ -557,12 +557,12 @@ export default function ApplicationDetailPage() {
               <LongField label="Reason for moving" value={app.reasonForMoving} />
               {occupants.length > 0 && (
                 <div>
-                  <p className="mb-2 text-xs text-muted-foreground">Other occupants</p>
+                  <p className="mb-2 text-[0.95rem] text-muted-foreground">Other occupants</p>
                   <div className="grid gap-2 md:grid-cols-2">
                     {occupants.map((occupant, index) => (
-                      <div key={`${occupant.name}-${index}`} className="rounded-lg border p-3 text-sm">
+                      <div key={`${occupant.name}-${index}`} className="rounded-lg border p-4 text-base">
                         <p className="font-medium">{occupant.name || "Unnamed occupant"}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[0.95rem] text-muted-foreground">
                           {[occupant.relationship, occupant.dateOfBirth].filter(Boolean).join(" - ") || "No details"}
                         </p>
                       </div>
@@ -575,8 +575,8 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <AlertTriangle className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <AlertTriangle className="h-5 w-5" />
                 Risk Disclosures
               </CardTitle>
             </CardHeader>
@@ -592,8 +592,8 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <FileText className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <FileText className="h-5 w-5" />
                 Documents
               </CardTitle>
             </CardHeader>
@@ -610,18 +610,18 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ClipboardCheck className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <ClipboardCheck className="h-5 w-5" />
                 References
               </CardTitle>
             </CardHeader>
             <CardContent>
               {app.references.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No references submitted.</p>
+                <p className="text-base text-muted-foreground">No references submitted.</p>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {app.references.map((reference) => (
-                    <div key={reference.id} className="rounded-lg border p-3 text-sm">
+                    <div key={reference.id} className="rounded-lg border p-4 text-base">
                       <div className="mb-2 flex items-center gap-2">
                         <p className="font-medium">{reference.name}</p>
                         <Badge variant="outline" className="capitalize">{reference.type}</Badge>
@@ -640,17 +640,17 @@ export default function ApplicationDetailPage() {
         <div className="space-y-5 lg:sticky lg:top-6 lg:self-start">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <ShieldCheck className="h-5 w-5" />
                 Credit Report
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className={`rounded-lg border p-3 ${recommendation.tone}`}>
+              <div className={`rounded-lg border p-4 ${recommendation.tone}`}>
                 <p className="font-medium">{recommendation.label}</p>
-                <p className="mt-1 text-sm">{recommendation.detail}</p>
+                <p className="mt-1 text-base leading-7">{recommendation.detail}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-2 gap-4">
                 <Field label="Status" value={SCREENING_LABEL[screeningStatus] ?? screeningStatus} />
                 <Field label="Report date" value={shortDate(app.backgroundCheckDate)} />
               </div>
@@ -664,8 +664,8 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <DollarSign className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <DollarSign className="h-5 w-5" />
                 Lease Terms
               </CardTitle>
             </CardHeader>
@@ -714,12 +714,12 @@ export default function ApplicationDetailPage() {
                   />
                 </div>
               </div>
-              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="rounded-lg border bg-muted/30 p-4 text-base">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Rent to income</span>
                   <span className="font-medium">{incomeRatio === null ? "--" : `${incomeRatio.toFixed(1)}x`}</span>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-[0.95rem] leading-6 text-muted-foreground">
                   Enter monthly rent to check whether household income supports the lease.
                 </p>
               </div>
@@ -728,14 +728,14 @@ export default function ApplicationDetailPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ClipboardCheck className="h-4 w-4" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <ClipboardCheck className="h-5 w-5" />
                 Decision
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {approvalBlockers.length > 0 && !isApproved && !isDenied && (
-                <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-4 text-base">
                   <p className="mb-2 font-medium">Before approval</p>
                   <div className="space-y-1.5">
                     {approvalBlockers.map((blocker) => (
@@ -804,7 +804,7 @@ export default function ApplicationDetailPage() {
                       {countersigning ? "Countersigning..." : "Countersign lease"}
                     </Button>
                   )}
-                  <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                  <div className="rounded-lg border bg-muted/30 p-4 text-base">
                     <p className="font-medium">Lease status: {leaseStatus?.replace("_", " ") ?? "draft"}</p>
                     <p className="text-muted-foreground">Continue from the lease or tenant page after signatures are complete.</p>
                   </div>
@@ -841,10 +841,10 @@ export default function ApplicationDetailPage() {
           <div className="space-y-4">
             <div className={`rounded-lg border p-3 ${recommendation.tone}`}>
               <p className="font-medium">{recommendation.label}</p>
-              <p className="text-sm">{recommendation.detail}</p>
+              <p className="text-base leading-7">{recommendation.detail}</p>
             </div>
             {approvalBlockers.length > 0 && (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-base text-red-800">
                 {approvalBlockers.map((blocker) => <p key={blocker}>{blocker}</p>)}
               </div>
             )}
@@ -854,7 +854,7 @@ export default function ApplicationDetailPage() {
               <Field label="Monthly rent" value={proposedRent > 0 ? formatCurrency(proposedRent) : "--"} />
               <Field label="Deposit" value={moneyValue(convertForm.depositAmount) > 0 ? formatCurrency(moneyValue(convertForm.depositAmount)) : "--"} />
             </div>
-            <label className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+            <label className="flex items-center gap-2 rounded-lg border p-4 text-base">
               <input
                 type="checkbox"
                 checked={sendLeaseAfterApproval}

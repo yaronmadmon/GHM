@@ -88,8 +88,8 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
       {/* Required types checklist */}
       <div className="flex flex-wrap gap-2">
         {REQUIRED_TYPES.map((t) => (
-          <div key={t} className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border ${coveredTypes.has(t) ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
-            {coveredTypes.has(t) ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+          <div key={t} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.9rem] ${coveredTypes.has(t) ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
+            {coveredTypes.has(t) ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
             {TYPE_LABELS[t]}
           </div>
         ))}
@@ -97,36 +97,36 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
 
       {/* Document list */}
       {docs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No documents on file.</p>
+        <p className="text-base text-muted-foreground">No documents on file.</p>
       ) : (
         <div className="space-y-1.5">
           {docs.map((doc) => (
-            <div key={doc.id} className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/20 gap-2">
+            <div key={doc.id} className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
               <div className="flex items-center gap-2 min-w-0">
-                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{doc.name}</p>
-                  <Badge variant="outline" className="text-xs mt-0.5">{TYPE_LABELS[doc.docType] ?? doc.docType}</Badge>
+                  <p className="truncate text-base font-medium">{doc.name}</p>
+                  <Badge variant="outline" className="mt-1">{TYPE_LABELS[doc.docType] ?? doc.docType}</Badge>
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 {doc.url && doc.url !== "[stored]" && (
                   canPreview(doc) ? (
-                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Preview" onClick={() => setPreviewDoc(doc)}>
-                      <ExternalLink className="h-3.5 w-3.5" />
+                    <Button variant="ghost" size="icon-sm" title="Preview" onClick={() => setPreviewDoc(doc)}>
+                      <ExternalLink className="h-4 w-4" />
                     </Button>
                   ) : doc.url.startsWith("data:") ? (
                     <a href={doc.url} download={doc.name}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Download"><ExternalLink className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon-sm" title="Download"><ExternalLink className="h-4 w-4" /></Button>
                     </a>
                   ) : (
                     <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" title="Open"><ExternalLink className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon-sm" title="Open"><ExternalLink className="h-4 w-4" /></Button>
                     </a>
                   )
                 )}
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(doc.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
+                <Button variant="ghost" size="icon-sm" className="text-destructive" onClick={() => handleDelete(doc.id)}>
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -137,15 +137,15 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
       {/* Add form */}
       {showForm ? (
         <div className="border rounded-lg p-3 space-y-3 bg-muted/10">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Document Name</Label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Oct 2024 Pay Stub" className="h-8 text-sm" />
+              <Label>Document Name</Label>
+              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Oct 2024 Pay Stub" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Type</Label>
+              <Label>Type</Label>
               <Select value={form.docType} onValueChange={(v) => setForm((f) => ({ ...f, docType: v ?? "other" }))}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(TYPE_LABELS).filter(([v]) => v !== "id").map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                 </SelectContent>
@@ -153,8 +153,8 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Document URL (Google Drive, Dropbox, etc.)</Label>
-            <Input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="https://drive.google.com/..." className="h-8 text-sm" />
+            <Label>Document URL (Google Drive, Dropbox, etc.)</Label>
+            <Input value={form.url} onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))} placeholder="https://drive.google.com/..." />
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={handleAdd} disabled={adding}>{adding ? "Adding..." : "Add Document"}</Button>
@@ -163,7 +163,7 @@ export function DocumentsSection({ applicationId, onDocsChange }: Props) {
         </div>
       ) : (
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowForm(true)}>
-          <Plus className="h-3.5 w-3.5" />Add Document
+          <Plus className="h-4 w-4" />Add Document
         </Button>
       )}
 

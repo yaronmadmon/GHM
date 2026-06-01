@@ -1,24 +1,24 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Wrench, Plus, MessageSquare, X } from "lucide-react";
+import { MessageSquare, Plus, Wrench, X } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 const PRIORITY_STYLES: Record<string, string> = {
-  emergency: "bg-red-500 text-white",
-  high: "bg-orange-500/10 text-orange-700 border-orange-200",
-  medium: "bg-amber-500/10 text-amber-700 border-amber-200",
+  emergency: "bg-red-600 text-white border-red-600",
+  high: "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-300 dark:border-orange-900",
+  medium: "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-900",
   low: "bg-muted text-muted-foreground",
 };
 
 const STATUS_STYLES: Record<string, string> = {
-  open: "bg-blue-500/10 text-blue-700 border-blue-200",
-  in_progress: "bg-amber-500/10 text-amber-700 border-amber-200",
-  pending_parts: "bg-purple-500/10 text-purple-700 border-purple-200",
-  completed: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
+  open: "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-300 dark:border-blue-900",
+  in_progress: "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-900",
+  pending_parts: "bg-purple-500/10 text-purple-700 border-purple-200 dark:text-purple-300 dark:border-purple-900",
+  completed: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-300 dark:border-emerald-900",
   cancelled: "bg-muted text-muted-foreground",
 };
 
@@ -43,103 +43,116 @@ export default async function MaintenancePage({ searchParams }: { searchParams: 
     orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
   });
 
+  const openCount = requests.filter((request) => request.status !== "completed").length;
+
   return (
-    <div className="p-4 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="page-shell page-stack">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Maintenance</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            {requests.filter((r) => r.status !== "completed").length} open requests
-          </p>
+          <p className="page-kicker">Operations</p>
+          <h1 className="page-title mt-2">Maintenance</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{openCount} open request{openCount !== 1 ? "s" : ""}</p>
         </div>
         <Link href="/maintenance/new">
-          <Button size="sm" className="gap-2"><Plus className="h-4 w-4" />New</Button>
+          <Button size="sm" className="gap-2">
+            <Plus className="h-4 w-4" />
+            New request
+          </Button>
         </Link>
       </div>
 
       {propertyFilter && requests[0] && (
-        <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg px-3 py-2">
+        <div className="surface-panel flex items-center gap-2 px-3 py-2 text-sm">
           <span className="text-muted-foreground">Filtered by property:</span>
           <span className="font-medium">{requests[0].property.name}</span>
-          <Link href="/maintenance" className="ml-auto text-muted-foreground hover:text-foreground">
+          <Link href="/maintenance" className="ml-auto text-muted-foreground hover:text-foreground" aria-label="Clear property filter">
             <X className="h-4 w-4" />
           </Link>
         </div>
       )}
 
       {requests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-xl">
-          <Wrench className="h-12 w-12 text-muted-foreground/40 mb-4" />
-          <h3 className="font-semibold text-lg">No maintenance requests</h3>
-          <p className="text-muted-foreground text-sm mt-1 mb-4">Log your first maintenance issue</p>
-          <Link href="/maintenance/new"><Button size="sm"><Plus className="h-4 w-4 mr-2" />New request</Button></Link>
+        <div className="empty-state">
+          <Wrench className="mb-4 h-12 w-12 text-muted-foreground/40" />
+          <h3 className="font-heading text-3xl font-semibold">No maintenance requests</h3>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">Log repair requests and vendor follow-up from one operations queue.</p>
+          <Link href="/maintenance/new" className="mt-5">
+            <Button size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />
+              New request
+            </Button>
+          </Link>
         </div>
       ) : (
         <>
-          {/* Mobile card list */}
-          <div className="md:hidden space-y-2">
-            {requests.map((r) => (
-              <Link key={r.id} href={`/maintenance/${r.id}`}>
-                <div className="rounded-lg border p-4 hover:bg-muted/30 transition-colors">
+          <div className="space-y-2 md:hidden">
+            {requests.map((request) => (
+              <Link key={request.id} href={`/maintenance/${request.id}`} className="block">
+                <article className="rounded-lg border bg-card p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">{r.title}</p>
-                      <p className="text-xs text-muted-foreground">{r.property.name}{r.unit ? ` · ${r.unit.unitNumber}` : ""}</p>
+                      <p className="truncate text-sm font-semibold">{request.title}</p>
+                      <p className="text-xs text-muted-foreground">{request.property.name}{request.unit ? ` - ${request.unit.unitNumber}` : ""}</p>
                     </div>
-                    <Badge className={`text-xs border shrink-0 ${PRIORITY_STYLES[r.priority] ?? ""}`}>{r.priority}</Badge>
+                    <Badge className={`shrink-0 border text-xs ${PRIORITY_STYLES[request.priority] ?? ""}`}>{request.priority}</Badge>
                   </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <Badge className={`text-xs border ${STATUS_STYLES[r.status] ?? ""}`}>{r.status.replace("_", " ")}</Badge>
-                    {r.assignedVendor && <span className="text-xs text-muted-foreground">{r.assignedVendor.name}</span>}
-                    {r._count.comments > 0 && (
-                      <span className="text-xs text-muted-foreground flex items-center gap-1 ml-auto">
-                        <MessageSquare className="h-3 w-3" />{r._count.comments}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Badge className={`border text-xs ${STATUS_STYLES[request.status] ?? ""}`}>{request.status.replace("_", " ")}</Badge>
+                    {request.assignedVendor && <span className="text-xs text-muted-foreground">{request.assignedVendor.name}</span>}
+                    {request._count.comments > 0 && (
+                      <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                        <MessageSquare className="h-3 w-3" />
+                        {request._count.comments}
                       </span>
                     )}
-                    <span className="text-xs text-muted-foreground ml-auto">{formatDate(r.createdAt)}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{formatDate(request.createdAt)}</span>
                   </div>
-                </div>
+                </article>
               </Link>
             ))}
           </div>
 
-          {/* Desktop table */}
-          <div className="hidden md:block rounded-lg border overflow-hidden">
+          <div className="data-table-shell hidden md:block">
             <table className="w-full text-sm">
-              <thead className="bg-muted/50">
+              <thead className="bg-muted/55">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Issue</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Property</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Priority</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Vendor</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Issue</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Property</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Priority</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Vendor</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {requests.map((r) => (
-                  <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                {requests.map((request) => (
+                  <tr key={request.id} className="transition-colors hover:bg-muted/30">
                     <td className="px-4 py-3">
-                      <Link href={`/maintenance/${r.id}`} className="font-medium hover:text-primary">{r.title}</Link>
-                      {r.category && <p className="text-xs text-muted-foreground capitalize">{r.category}</p>}
+                      <Link href={`/maintenance/${request.id}`} className="font-medium hover:text-primary">{request.title}</Link>
+                      {request.category && <p className="text-xs capitalize text-muted-foreground">{request.category}</p>}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      <Link href={`/properties/${r.property.id}`} className="hover:text-primary transition-colors">
-                        {r.property.name}
+                      <Link href={`/properties/${request.property.id}`} className="hover:text-primary">
+                        {request.property.name}
                       </Link>
-                      {r.unit ? ` · ${r.unit.unitNumber}` : ""}
+                      {request.unit ? ` - ${request.unit.unitNumber}` : ""}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge className={`text-xs border ${PRIORITY_STYLES[r.priority] ?? ""}`}>{r.priority}</Badge>
+                      <Badge className={`border text-xs ${PRIORITY_STYLES[request.priority] ?? ""}`}>{request.priority}</Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge className={`text-xs border ${STATUS_STYLES[r.status] ?? ""}`}>{r.status.replace("_", " ")}</Badge>
+                      <Badge className={`border text-xs ${STATUS_STYLES[request.status] ?? ""}`}>{request.status.replace("_", " ")}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{r.assignedVendor?.name ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{formatDate(r.createdAt)}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs flex items-center gap-1">
-                      {r._count.comments > 0 && <><MessageSquare className="h-3.5 w-3.5" />{r._count.comments}</>}
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{request.assignedVendor?.name ?? "-"}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{formatDate(request.createdAt)}</td>
+                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                      {request._count.comments > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          {request._count.comments}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

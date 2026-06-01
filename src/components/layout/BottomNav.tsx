@@ -16,7 +16,7 @@ const items = [
 export function BottomNav({ pendingApplications = 0 }: { pendingApplications?: number }) {
   const pathname = usePathname();
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 bg-background border-t md:hidden safe-area-bottom">
+    <nav className="safe-area-bottom fixed inset-x-0 bottom-0 z-40 border-t bg-card/96 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] backdrop-blur md:hidden">
       <div className="flex">
         {items.map((item) => {
           const Icon = item.icon;
@@ -27,10 +27,11 @@ export function BottomNav({ pendingApplications = 0 }: { pendingApplications?: n
               key={item.href}
               href={item.href}
               className={cn(
-                "flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors relative",
-                isActive ? "text-primary" : "text-muted-foreground"
+                "relative flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors",
+                isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
               )}
             >
+              {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
               <span className="relative">
                 <Icon className="h-5 w-5" />
                 {badge > 0 && (

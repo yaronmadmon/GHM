@@ -53,34 +53,34 @@ export function ScreeningSection({ applicationId, initialStatus, initialNotes, i
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Current status:</span>
-        <Badge className={`border text-xs ${statusMeta?.color ?? "bg-muted"}`}>{statusMeta?.label ?? status}</Badge>
+        <span className="text-base text-muted-foreground">Current status:</span>
+        <Badge className={`border ${statusMeta?.color ?? "bg-muted"}`}>{statusMeta?.label ?? status}</Badge>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label className="text-xs">Screening Result</Label>
+          <Label>Screening Result</Label>
           <Select value={status} onValueChange={(v) => { setStatus(v ?? "not_started"); }}>
-            <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+            <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {STATUS_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Screening Date</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-8 text-sm" />
+          <Label>Screening Date</Label>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Notes</Label>
+        <Label>Notes</Label>
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Background check provider, reference contact results, income verification notes..."
           rows={2}
-          className="text-sm resize-none"
+          className="resize-none"
         />
       </div>
 
