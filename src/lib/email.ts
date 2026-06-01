@@ -17,6 +17,15 @@ async function send(to: string, subject: string, html: string) {
   if (error) throw new Error(`Resend error: ${error.message}`);
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export async function sendNewApplicationAlert(to: string, applicantName: string, propertyName: string, applicationUrl: string) {
   await send(to, `New application from ${applicantName} — ${propertyName}`, `
     <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
@@ -26,6 +35,44 @@ export async function sendNewApplicationAlert(to: string, applicantName: string,
         Review Application
       </a>
       <p style="color:#666;font-size:14px">Log in to GHM to review documents, run screening, and approve or deny.</p>
+    </div>
+  `);
+}
+
+export async function sendApplicationDocumentRequest({
+  to,
+  applicantName,
+  propertyName,
+  applyUrl,
+  requestedLabels,
+  message,
+}: {
+  to: string;
+  applicantName: string;
+  propertyName: string;
+  applyUrl: string;
+  requestedLabels: string[];
+  message?: string | null;
+}) {
+  const safeName = escapeHtml(applicantName || "there");
+  const safeProperty = escapeHtml(propertyName);
+  const safeMessage = message?.trim() ? escapeHtml(message.trim()).replace(/\n/g, "<br/>") : "";
+  const items = requestedLabels.map((label) => `<li>${escapeHtml(label)}</li>`).join("");
+
+  await send(to, `Documents needed for your application — ${propertyName}`, `
+    <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
+      <h2>Additional Documents Requested</h2>
+      <p>Hi ${safeName},</p>
+      <p>We need a few more documents to continue reviewing your rental application for <strong>${safeProperty}</strong>.</p>
+      <div style="background:#f7f7f7;border:1px solid #e5e5e5;border-radius:8px;padding:14px 18px;margin:16px 0">
+        <p style="margin:0 0 8px;font-weight:600">Please upload:</p>
+        <ul style="margin:0;padding-left:20px">${items}</ul>
+      </div>
+      ${safeMessage ? `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px 18px;margin:16px 0;color:#333"><strong>Message from the landlord:</strong><br/>${safeMessage}</div>` : ""}
+      <a href="${applyUrl}" style="display:inline-block;background:#000;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin:16px 0">
+        Upload Documents
+      </a>
+      <p style="color:#666;font-size:14px">Or copy this link: ${applyUrl}</p>
     </div>
   `);
 }

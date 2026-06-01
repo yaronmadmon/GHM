@@ -17,6 +17,17 @@ interface InviteInfo {
   propertyName: string;
   propertyAddress: string;
   unitNumber: string | null;
+  applicationRequest?: ApplicationDocumentRequest | null;
+}
+
+interface ApplicationDocumentRequest {
+  applicationId: string;
+  applicantName: string;
+  requestedDocumentTypes: string[];
+  requestedLabels: string[];
+  message: string | null;
+  requestedAt: string | null;
+  documents: UploadedDoc[];
 }
 
 const STEPS = [
@@ -30,6 +41,51 @@ const STEPS = [
   "Documents",
   "Review & Sign",
 ];
+
+const REQUIRED_DOCUMENTS = [
+  {
+    docType: "government_id",
+    label: "Government-issued photo ID",
+    help: "Driver's license, state ID, or passport. Image or PDF accepted.",
+    accept: "image/*,.pdf",
+  },
+  {
+    docType: "pay_stub",
+    label: "Proof of income",
+    help: "Recent pay stubs, offer letter, benefits statement, or employer letter.",
+    accept: "image/*,.pdf,.doc,.docx",
+  },
+  {
+    docType: "bank_statement",
+    label: "Bank statement",
+    help: "Most recent statement, or the last 2-3 months if requested.",
+    accept: "image/*,.pdf",
+  },
+] as const;
+
+const OPTIONAL_DOCUMENTS = [
+  {
+    docType: "tax_return",
+    label: "Most recent tax return",
+    help: "Recommended if self-employed.",
+    accept: "image/*,.pdf",
+  },
+  {
+    docType: "previous_lease",
+    label: "Previous lease agreement",
+    help: "Optional supporting rental history.",
+    accept: "image/*,.pdf,.doc,.docx",
+  },
+] as const;
+
+function documentInfo(docType: string) {
+  return [...REQUIRED_DOCUMENTS, ...OPTIONAL_DOCUMENTS].find((doc) => doc.docType === docType) ?? {
+    docType,
+    label: "Other requested document",
+    help: "Upload the document requested by the landlord.",
+    accept: "image/*,.pdf,.doc,.docx",
+  };
+}
 
 type Bool3 = "yes" | "no" | undefined;
 
@@ -69,23 +125,37 @@ function SectionNote({ children }: { children: React.ReactNode }) {
 
 // ─── Document Uploader ────────────────────────────────────────────────────────
 
-interface UploadedDoc { name: string; url: string; docType: string; id?: string }
+interface UploadedDoc {
+  name: string;
+  url: string;
+  docType: string;
+  fileKey?: string | null;
+  id?: string;
+}
 
 function DocUploader({
-  label, docType, applicationId, token, docs, onAdd, onRemove,
+  label, help, docType, token, docs, onAdd, onRemove, required, accept, applicationId,
 }: {
-  label: string; docType: string; applicationId: string; token: string;
-  docs: UploadedDoc[]; onAdd: (d: UploadedDoc) => void; onRemove: (name: string) => void;
+  label: string;
+  help?: string;
+  docType: string;
+  token: string;
+  docs: UploadedDoc[];
+  onAdd: (d: UploadedDoc) => void;
+  onRemove: (docType: string, name: string) => void;
+  required?: boolean;
+  accept?: string;
+  applicationId?: string;
 }) {
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
-    if (file.size > 10 * 1024 * 1024) { toast.error("Max file size is 10 MB"); return; }
+    if (file.size > 8 * 1024 * 1024) { toast.error("Max file size is 8 MB"); return; }
     setUploading(true);
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("applicationId", applicationId);
+    if (applicationId) fd.append("applicationId", applicationId);
     fd.append("docType", docType);
     const res = await fetch(`/api/apply/${token}/upload`, { method: "POST", body: fd });
     setUploading(false);
@@ -95,18 +165,23 @@ function DocUploader({
       return;
     }
     const doc = await res.json();
-    onAdd({ name: file.name, url: doc.url ?? "[stored]", docType, id: doc.id });
+    onAdd({ name: doc.name ?? file.name, url: doc.url, docType: doc.docType ?? docType, fileKey: doc.fileKey ?? null, id: doc.id });
     toast.success(`${file.name} uploaded`);
   }
 
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium">{label}</p>
+      <div>
+        <p className="text-sm font-medium">
+          {label}{required && <span className="text-destructive ml-0.5">*</span>}
+        </p>
+        {help && <p className="text-xs text-muted-foreground mt-0.5">{help}</p>}
+      </div>
       {docs.map((d) => (
-        <div key={d.name} className="flex items-center gap-2 p-2 rounded-md bg-muted text-sm">
+        <div key={`${d.docType}-${d.name}-${d.fileKey ?? d.url}`} className="flex items-center gap-2 p-2 rounded-md bg-muted text-sm">
           {d.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />}
           <span className="flex-1 truncate">{d.name}</span>
-          <button type="button" onClick={() => onRemove(d.name)} className="text-muted-foreground hover:text-destructive">
+          <button type="button" onClick={() => onRemove(d.docType, d.name)} className="text-muted-foreground hover:text-destructive">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -118,7 +193,7 @@ function DocUploader({
         {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
         {uploading ? "Uploading…" : "Upload file"}
       </button>
-      <input ref={inputRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx"
+      <input ref={inputRef} type="file" className="hidden" accept={accept ?? "image/*,.pdf,.doc,.docx"}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
     </div>
   );
@@ -134,16 +209,28 @@ export default function ApplyPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [f, setF] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [applicationId, setApplicationId] = useState<string | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
-  const [docsSubmitted, setDocsSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("Your complete application and required documents have been submitted.");
+  const [documentRequest, setDocumentRequest] = useState<ApplicationDocumentRequest | null>(null);
+  const [resubmittingDocs, setResubmittingDocs] = useState(false);
 
   useEffect(() => {
     const draft = localStorage.getItem(`ghm_app_${token}`);
     if (draft) try { setF(JSON.parse(draft)); } catch {}
     fetch(`/api/apply/${token}`)
       .then((r) => r.json())
-      .then((d) => { if (d.error) setError(d.error); else setInvite(d); })
+      .then((d) => {
+        if (d.error) {
+          setError(d.error);
+          return;
+        }
+        setInvite(d);
+        if (d.applicationRequest) {
+          setDocumentRequest(d.applicationRequest);
+          setUploadedDocs(d.applicationRequest.documents ?? []);
+        }
+      })
       .catch(() => setError("Failed to load. Please try again."));
   }, [token]);
 
@@ -177,9 +264,18 @@ export default function ApplyPage() {
   function removeRef(i: number) { set({ references: refs.filter((_, idx) => idx !== i) }); }
 
   // docs
-  function addDoc(d: UploadedDoc) { setUploadedDocs((prev) => [...prev, d]); }
-  function removeDoc(name: string) { setUploadedDocs((prev) => prev.filter((d) => d.name !== name)); }
+  function addDoc(d: UploadedDoc) {
+    setUploadedDocs((prev) => [
+      ...prev.filter((doc) => !(doc.docType === d.docType && doc.name === d.name)),
+      d,
+    ]);
+  }
+  function removeDoc(docType: string, name: string) {
+    setUploadedDocs((prev) => prev.filter((d) => !(d.docType === docType && d.name === name)));
+  }
   const docsByType = (type: string) => uploadedDocs.filter((d) => d.docType === type);
+  const missingRequiredDocs = REQUIRED_DOCUMENTS.filter((doc) => docsByType(doc.docType).length === 0);
+  const requiredDocsDone = missingRequiredDocs.length === 0;
 
   function validate(): string | null {
     if (step === 0) {
@@ -188,7 +284,11 @@ export default function ApplyPage() {
       if (!val("email").trim()) return "Email is required";
     }
     if (step === STEPS.length - 1) {
+      if (!requiredDocsDone) return `Upload required documents before submitting: ${missingRequiredDocs.map((doc) => doc.label).join(", ")}`;
       if (!val("signatureData").trim()) return "Signature is required";
+    }
+    if (step === 7 && !requiredDocsDone) {
+      return `Upload required documents to continue: ${missingRequiredDocs.map((doc) => doc.label).join(", ")}`;
     }
     return null;
   }
@@ -221,21 +321,53 @@ export default function ApplyPage() {
         hasBankruptcy: f.hasBankruptcy === "yes" ? true : f.hasBankruptcy === "no" ? false : undefined,
         references: (f.references ?? []).filter((r: { name: string }) => r.name?.trim()),
         additionalOccupants: (f.additionalOccupants ?? []).filter((o: { name: string }) => o.name?.trim()),
+        documents: uploadedDocs.map((doc) => ({
+          name: doc.name,
+          url: doc.url,
+          fileKey: doc.fileKey ?? null,
+          docType: doc.docType,
+        })),
       }),
     });
     setSubmitting(false);
     if (res.ok) {
-      const data = await res.json();
+      await res.json();
       localStorage.removeItem(`ghm_app_${token}`);
-      setApplicationId(data.id);
-      setStep(STEPS.length); // move past last step to doc upload
+      setSuccessMessage("Your complete application and required documents have been submitted.");
+      setSubmitted(true);
     } else {
       const data = await res.json();
-      toast.error(data.error ?? "Submission failed. Please try again.");
+      const message = Array.isArray(data.error) ? data.error[0]?.message : data.error;
+      toast.error(message ?? "Submission failed. Please try again.");
     }
   }
 
   // ── Render states ──────────────────────────────────────────────────────────
+
+  async function handleResubmitDocuments() {
+    if (!documentRequest) return;
+    const missing = documentRequest.requestedDocumentTypes.filter((type) => docsByType(type).length === 0);
+    if (missing.length) {
+      toast.error(`Upload requested documents first: ${missing.map((type) => documentInfo(type).label).join(", ")}`);
+      return;
+    }
+
+    setResubmittingDocs(true);
+    const res = await fetch(`/api/apply/${token}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ applicationId: documentRequest.applicationId }),
+    });
+    setResubmittingDocs(false);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(data.error ?? "Could not resubmit documents. Please try again.");
+      return;
+    }
+    setSuccessMessage("Your requested documents have been uploaded and sent back for review.");
+    setDocumentRequest(null);
+    setSubmitted(true);
+  }
 
   if (error) return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -253,86 +385,87 @@ export default function ApplyPage() {
     </div>
   );
 
-  // Post-submit: document upload phase
-  const hasId = docsByType("government_id").length > 0;
-  const hasIncome = docsByType("pay_stub").length > 0;
-  const requiredDone = hasId && hasIncome;
+  if (submitted) return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-muted/20">
+      <Card className="max-w-md w-full"><CardContent className="p-10 text-center">
+        <CheckCircle className="h-14 w-14 text-emerald-500 mx-auto mb-4" />
+        <h2 className="text-2xl font-semibold mb-2">You&apos;re all set!</h2>
+        <p className="text-muted-foreground">
+          {successMessage} The landlord will continue reviewing <strong>{invite.propertyName}</strong>.
+        </p>
+      </CardContent></Card>
+    </div>
+  );
 
-  if (applicationId) {
-    if (docsSubmitted) return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-muted/20">
-        <Card className="max-w-md w-full"><CardContent className="p-10 text-center">
-          <CheckCircle className="h-14 w-14 text-emerald-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-semibold mb-2">You&apos;re all set!</h2>
-          <p className="text-muted-foreground">
-            Your application and documents for <strong>{invite.propertyName}</strong> have been submitted. The landlord will be in touch.
-          </p>
-        </CardContent></Card>
-      </div>
-    );
+  if (documentRequest) {
+    const missingRequestedDocs = documentRequest.requestedDocumentTypes.filter((type) => docsByType(type).length === 0);
 
     return (
       <div className="min-h-screen bg-muted/20 py-10 px-4">
         <div className="max-w-xl mx-auto space-y-6">
           <div className="text-center">
-            <CheckCircle className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
-            <h2 className="text-2xl font-semibold">Application submitted!</h2>
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+              <FileText className="h-6 w-6" />
+            </div>
+            <h1 className="text-2xl font-semibold">Additional documents requested</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Upload your documents to complete your application. Government ID and proof of income are required.
+              {invite.propertyName}{invite.unitNumber && ` · Unit ${invite.unitNumber}`}
             </p>
+            <p className="text-muted-foreground text-xs">{invite.propertyAddress}</p>
           </div>
 
-          {/* Required checklist */}
-          <div className="flex gap-3">
-            {[
-              { label: "Government ID", done: hasId },
-              { label: "Proof of Income", done: hasIncome },
-            ].map(({ label, done }) => (
-              <div key={label} className={`flex-1 flex items-center gap-2 p-3 rounded-lg border text-sm font-medium
-                ${done ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
-                {done
-                  ? <CheckCircle className="h-4 w-4 shrink-0" />
-                  : <AlertCircle className="h-4 w-4 shrink-0" />}
-                {label}
-                {done ? " ✓" : " required"}
-              </div>
-            ))}
+          {documentRequest.message && (
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-sm font-medium">Message from the landlord</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground whitespace-pre-line">{documentRequest.message}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid gap-2">
+            {documentRequest.requestedDocumentTypes.map((type) => {
+              const info = documentInfo(type);
+              const done = docsByType(type).length > 0;
+              return (
+                <div key={type} className={`flex items-center gap-2 p-3 rounded-lg border text-sm font-medium ${
+                  done ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"
+                }`}>
+                  {done
+                    ? <CheckCircle className="h-4 w-4 shrink-0" />
+                    : <AlertCircle className="h-4 w-4 shrink-0" />}
+                  <span className="flex-1">{info.label}</span>
+                  <span>{done ? "Uploaded" : "Required"}</span>
+                </div>
+              );
+            })}
           </div>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">Supporting Documents</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">Upload requested documents</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-6">
-              <DocUploader
-                label="Government-issued Photo ID * (Driver's license, state ID, or passport)"
-                docType="government_id" applicationId={applicationId} token={token}
-                docs={docsByType("government_id")} onAdd={addDoc} onRemove={removeDoc}
-              />
-              <div className="border-t" />
-              <DocUploader
-                label="Proof of Income * (Pay stubs, offer letter, or benefits statement)"
-                docType="pay_stub" applicationId={applicationId} token={token}
-                docs={docsByType("pay_stub")} onAdd={addDoc} onRemove={removeDoc}
-              />
-              <div className="border-t" />
-              <DocUploader
-                label="Bank Statements — last 2–3 months (optional)"
-                docType="bank_statement" applicationId={applicationId} token={token}
-                docs={docsByType("bank_statement")} onAdd={addDoc} onRemove={removeDoc}
-              />
-              <div className="border-t" />
-              <DocUploader
-                label="Most Recent Tax Return — if self-employed (optional)"
-                docType="tax_return" applicationId={applicationId} token={token}
-                docs={docsByType("tax_return")} onAdd={addDoc} onRemove={removeDoc}
-              />
-              <div className="border-t" />
-              <DocUploader
-                label="Previous Lease Agreement (optional)"
-                docType="previous_lease" applicationId={applicationId} token={token}
-                docs={docsByType("previous_lease")} onAdd={addDoc} onRemove={removeDoc}
-              />
+              {documentRequest.requestedDocumentTypes.map((type) => {
+                const info = documentInfo(type);
+                return (
+                  <DocUploader
+                    key={type}
+                    label={info.label}
+                    help={info.help}
+                    docType={type}
+                    token={token}
+                    applicationId={documentRequest.applicationId}
+                    docs={docsByType(type)}
+                    onAdd={addDoc}
+                    onRemove={removeDoc}
+                    required
+                    accept={info.accept}
+                  />
+                );
+              })}
               <SectionNote>
-                * Required. Accepted formats: JPG, PNG, PDF, DOC. Max 8 MB per file. Your documents are only shared with the landlord.
+                Upload a new file for each requested item, then resubmit so the landlord can continue the review.
               </SectionNote>
             </CardContent>
           </Card>
@@ -340,19 +473,14 @@ export default function ApplyPage() {
           <Button
             className="w-full"
             size="lg"
-            disabled={!requiredDone}
-            onClick={() => setDocsSubmitted(true)}
+            disabled={resubmittingDocs || missingRequestedDocs.length > 0}
+            onClick={handleResubmitDocuments}
           >
-            {requiredDone ? "Complete Application" : "Upload required documents to continue"}
+            {resubmittingDocs ? <><Loader2 className="h-4 w-4 animate-spin" />Submitting...</> : "Resubmit documents"}
           </Button>
-
-          {!requiredDone && (
+          {missingRequestedDocs.length > 0 && (
             <p className="text-center text-xs text-muted-foreground">
-              {!hasId && !hasIncome
-                ? "Government ID and proof of income are required."
-                : !hasId
-                ? "Please upload your government ID."
-                : "Please upload your proof of income."}
+              Missing: {missingRequestedDocs.map((type) => documentInfo(type).label).join(", ")}
             </p>
           )}
         </div>
@@ -619,13 +747,63 @@ export default function ApplyPage() {
             {/* ── Step 7: Documents ───────────────────────────────────────── */}
             {stepIdx === 7 && <>
               <SectionNote>
-                Document upload is available after you submit your application. You can skip this step now — you will be
-                prompted to upload your ID, pay stubs, and other documents on the next screen.
+                Upload the required documents before signing. Your application is not submitted until the final review step.
               </SectionNote>
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Required: Government ID · Proof of Income<br />
-                Optional: Bank Statements · Tax Returns · Previous Lease
-              </p>
+              <div className="grid gap-2">
+                {REQUIRED_DOCUMENTS.map((doc) => {
+                  const done = docsByType(doc.docType).length > 0;
+                  return (
+                    <div key={doc.docType} className={`flex items-center gap-2 p-3 rounded-lg border text-sm font-medium ${
+                      done ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"
+                    }`}>
+                      {done
+                        ? <CheckCircle className="h-4 w-4 shrink-0" />
+                        : <AlertCircle className="h-4 w-4 shrink-0" />}
+                      <span className="flex-1">{doc.label}</span>
+                      <span>{done ? "Uploaded" : "Required"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-6">
+                {REQUIRED_DOCUMENTS.map((doc) => (
+                  <div key={doc.docType} className="border-t pt-4 first:border-t-0 first:pt-0">
+                    <DocUploader
+                      label={doc.label}
+                      help={doc.help}
+                      docType={doc.docType}
+                      token={token}
+                      docs={docsByType(doc.docType)}
+                      onAdd={addDoc}
+                      onRemove={removeDoc}
+                      required
+                      accept={doc.accept}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t pt-4 space-y-6">
+                <p className="text-sm font-medium">Optional supporting documents</p>
+                {OPTIONAL_DOCUMENTS.map((doc) => (
+                  <DocUploader
+                    key={doc.docType}
+                    label={doc.label}
+                    help={doc.help}
+                    docType={doc.docType}
+                    token={token}
+                    docs={docsByType(doc.docType)}
+                    onAdd={addDoc}
+                    onRemove={removeDoc}
+                    accept={doc.accept}
+                  />
+                ))}
+              </div>
+
+              <SectionNote>
+                Accepted formats: JPG, PNG, PDF, DOC, and DOCX. Max 8 MB per file.
+              </SectionNote>
             </>}
 
             {/* ── Step 8: Review & Sign ───────────────────────────────────── */}
@@ -652,6 +830,25 @@ export default function ApplyPage() {
                     ))}
                   </div>
                 )}
+                <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                  <p className="font-medium">Documents</p>
+                  {REQUIRED_DOCUMENTS.map((doc) => {
+                    const uploaded = docsByType(doc.docType);
+                    return (
+                      <div key={doc.docType} className="flex items-start gap-2 text-muted-foreground">
+                        {uploaded.length > 0
+                          ? <CheckCircle className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+                          : <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-600" />}
+                        <div>
+                          <p>{doc.label}</p>
+                          {uploaded.map((item) => (
+                            <p key={`${item.docType}-${item.name}`} className="text-xs">{item.name}</p>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="p-4 bg-muted/50 rounded-lg text-xs text-muted-foreground leading-relaxed border">
@@ -687,7 +884,7 @@ export default function ApplyPage() {
               Next<ChevronRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button onClick={handleSubmit} disabled={submitting || !val("signatureData").trim()} className="gap-2">
+            <Button onClick={handleSubmit} disabled={submitting || !val("signatureData").trim() || !requiredDocsDone} className="gap-2">
               {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Submitting…</> : "Submit Application"}
             </Button>
           )}

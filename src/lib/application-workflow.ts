@@ -9,17 +9,33 @@ export const APPLICATION_STATUSES = [
 
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
+export const APPLICATION_DOCUMENT_TYPES = [
+  "government_id",
+  "pay_stub",
+  "bank_statement",
+  "tax_return",
+  "previous_lease",
+  "other",
+] as const;
+
+export type ApplicationDocumentType = (typeof APPLICATION_DOCUMENT_TYPES)[number];
+
 export const REQUIRED_APPLICATION_DOCUMENT_TYPES = [
   "government_id",
   "pay_stub",
   "bank_statement",
 ] as const;
 
-export const REQUIRED_APPLICATION_DOCUMENT_LABELS: Record<string, string> = {
+export const APPLICATION_DOCUMENT_LABELS: Record<string, string> = {
   government_id: "Government ID",
   pay_stub: "Pay stub / proof of income",
   bank_statement: "Bank statement",
+  tax_return: "Tax return",
+  previous_lease: "Previous lease",
+  other: "Other documentation",
 };
+
+export const REQUIRED_APPLICATION_DOCUMENT_LABELS = APPLICATION_DOCUMENT_LABELS;
 
 export type ApplicationWorkflowDoc = {
   docType: string | null;
@@ -71,8 +87,8 @@ export function validateApplicationStatusTransition(
   const allowedNext: Record<ApplicationStatus, ApplicationStatus[]> = {
     pending: ["documents_requested"],
     documents_requested: ["under_review"],
-    under_review: ["screening"],
-    screening: [],
+    under_review: ["documents_requested", "screening"],
+    screening: ["documents_requested"],
     approved: [],
     denied: [],
   };

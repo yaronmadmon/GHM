@@ -31,7 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DocumentsSection } from "@/components/applications/DocumentsSection";
 import { ScreeningSection } from "@/components/applications/ScreeningSection";
 import { WorkflowVerificationPanel } from "@/components/applications/WorkflowVerificationPanel";
-import { applicationRequirements } from "@/lib/application-workflow";
+import { APPLICATION_DOCUMENT_LABELS, applicationRequirements } from "@/lib/application-workflow";
 import { formatCurrency } from "@/lib/utils";
 
 interface AppDoc {
@@ -142,6 +142,15 @@ const SCREENING_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
+const DOCUMENT_REQUEST_OPTIONS = [
+  { value: "government_id", label: APPLICATION_DOCUMENT_LABELS.government_id, helper: "Photo ID, driver's license, state ID, or passport" },
+  { value: "pay_stub", label: APPLICATION_DOCUMENT_LABELS.pay_stub, helper: "Pay stubs, offer letter, benefits statement, or employer letter" },
+  { value: "bank_statement", label: APPLICATION_DOCUMENT_LABELS.bank_statement, helper: "Recent bank statement or the last 2-3 months" },
+  { value: "tax_return", label: APPLICATION_DOCUMENT_LABELS.tax_return, helper: "Useful for self-employed applicants" },
+  { value: "previous_lease", label: APPLICATION_DOCUMENT_LABELS.previous_lease, helper: "Previous lease or rental verification document" },
+  { value: "other", label: APPLICATION_DOCUMENT_LABELS.other, helper: "Use the message to describe exactly what is needed" },
+];
+
 function moneyValue(value: number | string | null | undefined) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -235,12 +244,15 @@ export default function ApplicationDetailPage() {
   const [docs, setDocs] = useState<AppDoc[]>([]);
   const [convertOpen, setConvertOpen] = useState(false);
   const [screeningOpen, setScreeningOpen] = useState(false);
+  const [requestDocsOpen, setRequestDocsOpen] = useState(false);
   const [convertForm, setConvertForm] = useState({ startDate: "", endDate: "", rentAmount: "", depositAmount: "" });
   const [decisionNotes, setDecisionNotes] = useState("");
+  const [documentRequestTypes, setDocumentRequestTypes] = useState<string[]>([]);
+  const [documentRequestMessage, setDocumentRequestMessage] = useState("");
   const [sendLeaseAfterApproval, setSendLeaseAfterApproval] = useState(true);
   const [converting, setConverting] = useState(false);
   const [denying, setDenying] = useState(false);
-  const [requestingInfo, setRequestingInfo] = useState(false);
+  const [sendingDocumentRequest, setSendingDocumentRequest] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [sendingLease, setSendingLease] = useState(false);
   const [countersigning, setCountersigning] = useState(false);
@@ -313,16 +325,45 @@ export default function ApplicationDetailPage() {
     return data;
   }
 
-  async function handleRequestMoreInfo() {
-    setRequestingInfo(true);
+  function toggleDocumentRequestType(type: string) {
+    setDocumentRequestTypes((current) => (
+      current.includes(type)
+        ? current.filter((item) => item !== type)
+        : [...current, type]
+    ));
+  }
+
+  function openDocumentRequestDialog() {
+    const defaults = requirementState.missingDocuments.length
+      ? requirementState.missingDocuments
+      : [];
+    setDocumentRequestTypes(defaults);
+    setDocumentRequestMessage(decisionNotes || "");
+    setRequestDocsOpen(true);
+  }
+
+  async function handleSendDocumentRequest() {
+    if (documentRequestTypes.length === 0) {
+      toast.error("Select at least one document to request");
+      return;
+    }
+    setSendingDocumentRequest(true);
     try {
-      await updateApplication({ status: "documents_requested", decisionNotes });
-      toast.success("Application marked for more information");
+      const data = await updateApplication({
+        status: "documents_requested",
+        decisionNotes: documentRequestMessage || decisionNotes,
+        requestedDocumentTypes: documentRequestTypes,
+        documentRequestMessage,
+      });
+      const sent = data.documentRequest?.emailSent;
+      const emailError = data.documentRequest?.emailError;
+      toast.success(sent ? "Document request sent to applicant" : `Request saved${emailError ? `; email not sent: ${emailError}` : ""}`);
+      setRequestDocsOpen(false);
       await loadApp();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update application");
+      toast.error(error instanceof Error ? error.message : "Failed to send document request");
     } finally {
-      setRequestingInfo(false);
+      setSendingDocumentRequest(false);
     }
   }
 
@@ -817,8 +858,8 @@ export default function ApplicationDetailPage() {
                     <CheckCircle className="h-4 w-4" />
                     Approve and create lease
                   </Button>
-                  <Button variant="outline" className="w-full" onClick={handleRequestMoreInfo} disabled={requestingInfo}>
-                    {requestingInfo ? "Updating..." : "Request more information"}
+                  <Button variant="outline" className="w-full" onClick={openDocumentRequestDialog}>
+                    Request documents
                   </Button>
                   <Button
                     variant="outline"
@@ -888,6 +929,58 @@ export default function ApplicationDetailPage() {
               setScreeningOpen(false);
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={requestDocsOpen} onOpenChange={setRequestDocsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Request Missing Documents</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-4 text-base">
+              <p className="font-medium">Choose what the applicant needs to upload</p>
+              <p className="mt-1 text-[0.95rem] leading-6 text-muted-foreground">
+                The applicant will receive a secure link back to this application and can upload only the requested documents.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {DOCUMENT_REQUEST_OPTIONS.map((option) => (
+                <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-base transition-colors hover:bg-muted/30">
+                  <input
+                    type="checkbox"
+                    checked={documentRequestTypes.includes(option.value)}
+                    onChange={() => toggleDocumentRequestType(option.value)}
+                    className="mt-1 h-4 w-4"
+                  />
+                  <span>
+                    <span className="block font-medium">{option.label}</span>
+                    <span className="block text-[0.95rem] leading-6 text-muted-foreground">{option.helper}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Message to applicant</Label>
+              <Textarea
+                value={documentRequestMessage}
+                onChange={(event) => setDocumentRequestMessage(event.target.value)}
+                rows={4}
+                placeholder="Example: Please upload the most recent bank statement and a clearer image of your government ID."
+              />
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" onClick={() => setRequestDocsOpen(false)} disabled={sendingDocumentRequest}>
+                Cancel
+              </Button>
+              <Button onClick={handleSendDocumentRequest} disabled={sendingDocumentRequest || documentRequestTypes.length === 0}>
+                {sendingDocumentRequest ? "Sending..." : "Confirm and send request"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

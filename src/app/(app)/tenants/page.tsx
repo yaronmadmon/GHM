@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Archive, CalendarDays, CircleDollarSign, CreditCard, FileText, Mail, Phone, Plus, Receipt, ScrollText, Users } from "lucide-react";
 import { daysUntil, formatCurrency, formatDate, getInitials } from "@/lib/utils";
 import { TenantPaymentButton } from "@/components/tenants/TenantPaymentButton";
+import { TenantChargeButton } from "@/components/tenants/TenantChargeButton";
 import { leaseMonthlyDueForPeriod } from "@/lib/monthly-charges";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 
@@ -276,6 +277,24 @@ export default async function TenantsPage() {
                           periodMonth={currentPeriodMonth}
                           variant={currentBalance > 0 ? "default" : "outline"}
                           size="sm"
+                        />
+                        <TenantChargeButton
+                          leaseId={lease.id}
+                          tenantName={`${primary.firstName} ${primary.lastName}`}
+                          mode="charge"
+                          currentBalance={currentBalance}
+                          buttonLabel="Charge"
+                          size="sm"
+                          variant="outline"
+                        />
+                        <TenantChargeButton
+                          leaseId={lease.id}
+                          tenantName={`${primary.firstName} ${primary.lastName}`}
+                          mode="credit"
+                          currentBalance={currentBalance}
+                          buttonLabel="Credit"
+                          size="sm"
+                          variant="outline"
                         />
                         <Link href={`/tenants/${primary.id}/ledger`}>
                           <Button size="sm" variant="outline" className="gap-2">

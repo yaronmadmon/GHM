@@ -15,6 +15,12 @@ const CHARGE_MAP: Record<string, { category: string; txType: "income" | "expense
   attorney_fee:               { category: "other",    txType: "income" },
   security_deposit_deduction: { category: "deposit",  txType: "income" },
   credit:                     { category: "other",    txType: "expense" }, // reduces balance
+  rent_credit:                { category: "other",    txType: "expense" },
+  payment_correction:         { category: "other",    txType: "expense" },
+  concession:                 { category: "other",    txType: "expense" },
+  maintenance_credit:         { category: "repair",   txType: "expense" },
+  deposit_credit:             { category: "deposit",  txType: "expense" },
+  other_credit:               { category: "other",    txType: "expense" },
   other:                      { category: "other",    txType: "income" },
 };
 
@@ -73,6 +79,7 @@ export async function POST(req: NextRequest) {
     if (!lease) return Response.json({ error: "Lease not found" }, { status: 404 });
 
     const mapping = CHARGE_MAP[data.chargeType];
+    const isCredit = mapping.txType === "expense";
     const charge = await prisma.transaction.create({
       data: {
         organizationId,
@@ -85,6 +92,21 @@ export async function POST(req: NextRequest) {
         date: new Date(data.date),
         description: data.description || data.chargeType.replace(/_/g, " "),
         createdById: userId,
+      },
+    });
+
+    await prisma.activityEvent.create({
+      data: {
+        organizationId,
+        actorId: userId,
+        entityType: "lease",
+        entityId: data.leaseId,
+        eventType: isCredit ? "credit_applied" : "charge_created",
+        metadata: {
+          amount: data.amount,
+          adjustmentType: data.chargeType,
+          description: charge.description,
+        },
       },
     });
 

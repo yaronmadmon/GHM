@@ -307,6 +307,26 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
               size="sm"
             />
           )}
+          {activeLease && (
+            <>
+              <TenantChargeButton
+                leaseId={activeLease.id}
+                tenantName={tenantName}
+                mode="charge"
+                currentBalance={currentBalance}
+                buttonLabel="Charge"
+                size="sm"
+              />
+              <TenantChargeButton
+                leaseId={activeLease.id}
+                tenantName={tenantName}
+                mode="credit"
+                currentBalance={currentBalance}
+                buttonLabel="Credit"
+                size="sm"
+              />
+            </>
+          )}
           <Link href={`/tenants/${id}/ledger`}>
             <Button size="sm" variant="outline" className="gap-2">
               <ScrollText className="h-4 w-4" />
@@ -584,10 +604,27 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
           </Section>
 
           <Section
-            title="Tenant Charges"
+            title="Charges and Credits"
             icon={<CircleDollarSign className="h-4 w-4" />}
             action={activeLease ? (
-              <TenantChargeButton leaseId={activeLease.id} tenantName={tenantName} />
+              <div className="flex flex-wrap gap-2">
+                <TenantChargeButton
+                  leaseId={activeLease.id}
+                  tenantName={tenantName}
+                  mode="charge"
+                  currentBalance={currentBalance}
+                  buttonLabel="Charge"
+                  size="sm"
+                />
+                <TenantChargeButton
+                  leaseId={activeLease.id}
+                  tenantName={tenantName}
+                  mode="credit"
+                  currentBalance={currentBalance}
+                  buttonLabel="Credit"
+                  size="sm"
+                />
+              </div>
             ) : null}
           >
             {adHocCharges.length > 0 ? (
@@ -609,7 +646,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {activeLease ? "No charges recorded yet." : "No active lease."}
+                {activeLease ? "No charges or credits recorded yet." : "No active lease."}
               </p>
             )}
           </Section>
@@ -761,6 +798,8 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             {activityEvents.map((event) => {
               const labelMap: Record<string, string> = {
                 payment_recorded: "Payment recorded",
+                charge_created: "Charge created",
+                credit_applied: "Credit applied",
                 status_changed: "Status changed",
                 created: "Record created",
                 updated: "Record updated",
