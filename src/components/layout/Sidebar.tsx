@@ -20,12 +20,6 @@ import {
   DoorOpen,
   RefreshCw,
   CalendarDays,
-  FolderOpen,
-  Bot,
-  CheckSquare,
-  Receipt,
-  Coffee,
-  AlertCircle,
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -49,7 +43,6 @@ interface NavSection {
 const navSections: NavSection[] = [
   {
     items: [
-      { href: "/todays-office", label: "Today's Office", icon: Coffee },
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/properties", label: "Properties", icon: Building2 },
       { href: "/tenants", label: "Tenants", icon: Users },
@@ -72,23 +65,13 @@ const navSections: NavSection[] = [
       { href: "/vendors", label: "Vendors", icon: HardHat },
       { href: "/messages", label: "Messages", icon: MessageSquare, badgeKey: "messages" },
       { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/tasks", label: "Tasks", icon: CheckSquare, badgeKey: "tasks" },
     ],
   },
   {
     label: "Finance",
     items: [
       { href: "/financials", label: "Financials", icon: ArrowUpDown },
-      { href: "/bills", label: "Bills", icon: Receipt, badgeKey: "bills" },
-      { href: "/documents", label: "Documents", icon: FolderOpen },
-      { href: "/missing-documents", label: "Missing Docs", icon: AlertCircle, badgeKey: "missingDocs" },
       { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
-      { href: "/agent", label: "Agent Ops", icon: Bot },
     ],
   },
   {
@@ -101,20 +84,16 @@ const navSections: NavSection[] = [
 interface SidebarProps {
   pendingApplications?: number;
   unreadMessages?: number;
-  openTasks?: number;
-  unpaidBills?: number;
   collapsed?: boolean;
   onToggle?: () => void;
 }
 
-export function Sidebar({ pendingApplications = 0, unreadMessages = 0, openTasks = 0, unpaidBills = 0, collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ pendingApplications = 0, unreadMessages = 0, collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
 
   const badges: Record<string, number> = {
     applications: pendingApplications,
     messages: unreadMessages,
-    tasks: openTasks,
-    bills: unpaidBills,
   };
 
   return (

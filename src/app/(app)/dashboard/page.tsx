@@ -14,7 +14,6 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
-  CheckSquare,
   ClipboardList,
   DollarSign,
   DoorOpen,
@@ -34,10 +33,21 @@ const PRIORITY_STYLES: Record<string, string> = {
   low: "bg-muted text-muted-foreground",
 };
 
+type DashboardBill = {
+  id: string;
+  amount: number | string;
+  dueDate: Date | string | null;
+  status: string;
+  vendorName: string | null;
+  vendor: { name: string } | null;
+  property: { name: string } | null;
+};
+
 async function getDashboardData(organizationId: string, userId: string) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
+  const unpaidBills: DashboardBill[] = [];
 
   const [
     properties,
@@ -48,9 +58,6 @@ async function getDashboardData(organizationId: string, userId: string) {
     leasePipeline,
     openMaintenance,
     unreadThreads,
-    openTasks,
-    overdueTasks,
-    unpaidBills,
   ] = await Promise.all([
     prisma.property.findMany({
       where: { organizationId, archivedAt: null },
@@ -101,18 +108,6 @@ async function getDashboardData(organizationId: string, userId: string) {
         },
       },
       orderBy: { lastMessageAt: "desc" },
-      take: 5,
-    }),
-    prisma.task.count({
-      where: { organizationId, status: { in: ["open", "in_progress", "waiting"] } },
-    }),
-    prisma.task.count({
-      where: { organizationId, status: { in: ["open", "in_progress", "waiting"] }, dueDate: { lt: new Date() } },
-    }),
-    prisma.bill.findMany({
-      where: { organizationId, status: { in: ["needs_review", "approved"] } },
-      select: { id: true, amount: true, dueDate: true, status: true, vendorName: true, vendor: { select: { name: true } }, property: { select: { name: true } } },
-      orderBy: { dueDate: "asc" },
       take: 5,
     }),
   ]);
@@ -172,11 +167,9 @@ async function getDashboardData(organizationId: string, userId: string) {
     leasePipeline: sortedPipeline,
     openMaintenance: sortedMaintenance,
     unreadThreads,
-    openTasks,
-    overdueTasks,
     unpaidBills,
-    unpaidBillsTotal: unpaidBills.reduce((s, b) => s + Number(b.amount), 0),
-    overdueBillsCount: unpaidBills.filter((b) => b.status === "approved" && b.dueDate != null && new Date(b.dueDate) < new Date()).length,
+    unpaidBillsTotal: 0,
+    overdueBillsCount: 0,
   };
 }
 
@@ -204,8 +197,7 @@ export default async function DashboardPage() {
     data.leasePipeline.length +
     data.openMaintenance.length +
     data.unreadThreads.length +
-    data.expiringLeases.length +
-    data.openTasks;
+    data.expiringLeases.length;
 
   const dateLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -224,7 +216,7 @@ export default async function DashboardPage() {
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               {dateLabel}. {attentionCount === 0
                 ? "Everything important is quiet right now."
-                : `${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention across rent, leasing, tasks, maintenance, and messages.`}
+                : `${attentionCount} item${attentionCount === 1 ? "" : "s"} need attention across rent, leasing, maintenance, and messages.`}
             </p>
           </div>
 
@@ -277,7 +269,7 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="metric-card">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-muted-foreground">Properties</p>
@@ -319,19 +311,6 @@ export default async function DashboardPage() {
           </div>
           <p className="mt-4 font-mono text-3xl font-semibold">{data.pendingApps}</p>
           <p className="mt-1 text-xs text-muted-foreground">active review</p>
-        </Link>
-
-        <Link href="/tasks" className="metric-card block">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-muted-foreground">Tasks</p>
-            <CheckSquare className="h-4 w-4 text-primary" />
-          </div>
-          <p className={`mt-4 font-mono text-3xl font-semibold ${data.overdueTasks > 0 ? "text-destructive" : ""}`}>
-            {data.openTasks}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {data.openTasks === 0 ? "all clear" : data.overdueTasks > 0 ? `${data.overdueTasks} overdue` : "open"}
-          </p>
         </Link>
       </div>
 

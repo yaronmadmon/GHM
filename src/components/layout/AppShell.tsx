@@ -9,8 +9,6 @@ interface AppShellProps {
   children: React.ReactNode;
   pendingApplications?: number;
   unreadMessages?: number;
-  openTasks?: number;
-  unpaidBills?: number;
 }
 
 function ProcessingBar() {
@@ -23,7 +21,7 @@ function ProcessingBar() {
   );
 }
 
-export function AppShell({ children, pendingApplications, unreadMessages, openTasks, unpaidBills }: AppShellProps) {
+export function AppShell({ children, pendingApplications, unreadMessages }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -35,8 +33,6 @@ export function AppShell({ children, pendingApplications, unreadMessages, openTa
           <Sidebar
             pendingApplications={pendingApplications}
             unreadMessages={unreadMessages}
-            openTasks={openTasks}
-            unpaidBills={unpaidBills}
             collapsed={collapsed}
             onToggle={() => setCollapsed((c) => !c)}
           />

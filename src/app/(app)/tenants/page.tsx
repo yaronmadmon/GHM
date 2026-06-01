@@ -13,37 +13,24 @@ export default async function TenantsPage() {
 
   const orgId = session.user.organizationId;
 
-  const [activeLeases, propDocCounts] = await Promise.all([
-    prisma.lease.findMany({
-      where: { organizationId: orgId, status: "active" },
-      include: {
-        unit: { include: { property: true } },
-        tenants: {
-          include: {
-            tenant: {
-              include: {
-                convertedFrom: { include: { documents: { select: { id: true } } } },
-              },
+  const activeLeases = await prisma.lease.findMany({
+    where: { organizationId: orgId, status: "active" },
+    include: {
+      unit: { include: { property: true } },
+      tenants: {
+        include: {
+          tenant: {
+            include: {
+              convertedFrom: { include: { documents: { select: { id: true } } } },
             },
           },
-          orderBy: { isPrimary: "desc" },
         },
-        documents: { select: { id: true } },
+        orderBy: { isPrimary: "desc" },
       },
-      orderBy: { createdAt: "asc" },
-    }),
-    prisma.propertyDocument.groupBy({
-      by: ["propertyId"],
-      where: { organizationId: orgId, propertyId: { not: null } },
-      _count: { id: true },
-    }),
-  ]);
-
-  const propDocMap = new Map(
-    propDocCounts
-      .filter((r) => r.propertyId != null)
-      .map((r) => [r.propertyId as string, r._count.id]),
-  );
+      documents: { select: { id: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
 
   type LeaseRow = (typeof activeLeases)[0];
   const unitMap = new Map<string, { lease: LeaseRow; tenants: LeaseRow["tenants"] }>();
@@ -112,8 +99,7 @@ export default async function TenantsPage() {
               (sum, lt) => sum + (lt.tenant.convertedFrom?.documents.length ?? 0),
               0,
             );
-            const propDocCount = propDocMap.get(lease.unit.property.id) ?? 0;
-            const totalDocCount = leaseDocCount + appDocCount + propDocCount;
+            const totalDocCount = leaseDocCount + appDocCount;
             return (
               <article key={lease.unitId} className="relative rounded-lg border bg-card p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md">
                 <Link

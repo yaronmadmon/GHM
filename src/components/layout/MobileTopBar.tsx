@@ -6,14 +6,12 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   ArrowUpDown,
-  Bot,
   Building2,
   CalendarDays,
   ClipboardList,
   DollarSign,
   DoorOpen,
   FileText,
-  FolderOpen,
   HardHat,
   LayoutDashboard,
   LogOut,
@@ -45,8 +43,6 @@ const allNav = [
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/financials", label: "Financials", icon: ArrowUpDown },
-  { href: "/documents", label: "Documents", icon: FolderOpen },
-  { href: "/agent", label: "Agent Ops", icon: Bot },
   { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
