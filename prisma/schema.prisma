@@ -213,6 +213,7 @@ model Tenant {
   emergencyContactPhone String?
   notes                 String?
   portalUserId          String?
+  archivedAt            DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

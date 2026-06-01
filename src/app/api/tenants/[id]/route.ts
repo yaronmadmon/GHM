@@ -76,8 +76,8 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
     const existing = await prisma.tenant.findFirst({ where: { id, organizationId } });
     if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
 
-    // Hard delete — cascades via Prisma relations (LeaseTenant links, portal sessions, etc.)
-    await prisma.tenant.delete({ where: { id } });
+    // Soft delete — preserves all history (leases, payments, ledger, documents)
+    await prisma.tenant.update({ where: { id }, data: { archivedAt: new Date() } });
     return Response.json({ ok: true });
   } catch {
     return Response.json({ error: "Internal server error" }, { status: 500 });

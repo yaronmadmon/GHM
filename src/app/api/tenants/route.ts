@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
     const tenants = await prisma.tenant.findMany({
       where: {
         organizationId,
+        archivedAt: null,
         ...(search ? {
           OR: [
             { firstName: { contains: search, mode: "insensitive" } },

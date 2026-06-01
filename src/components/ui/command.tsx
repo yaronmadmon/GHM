@@ -39,12 +39,17 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  shouldFilter = false,
   ...props
 }: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
   title?: string
   description?: string
   className?: string
   showCloseButton?: boolean
+  /** Whether cmdk should filter items by the input value.
+   *  Default false — most uses are API-driven search that handle
+   *  their own filtering. Set true for static command lists. */
+  shouldFilter?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -60,7 +65,7 @@ function CommandDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <Command>{children}</Command>
+        <Command shouldFilter={shouldFilter}>{children}</Command>
       </DialogContent>
     </Dialog>
   )

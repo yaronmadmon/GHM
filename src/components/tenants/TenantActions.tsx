@@ -10,7 +10,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Pencil, Trash2 } from "lucide-react";
+import { Archive, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 interface TenantData {
@@ -97,8 +97,8 @@ export function TenantActions({
     setDeleting(true);
     try {
       const res = await fetch(`/api/tenants/${tenant.id}`, { method: "DELETE" });
-      if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Failed to delete"); return; }
-      toast.success("Tenant removed");
+      if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Failed to archive"); return; }
+      toast.success("Tenant archived — all records preserved");
       router.push("/tenants");
     } catch {
       toast.error("Something went wrong");
@@ -113,8 +113,8 @@ export function TenantActions({
         <Pencil className="h-4 w-4" />Edit
       </Button>
       {!editOnly && (
-        <Button size="sm" variant="outline" className="gap-2 text-destructive hover:text-destructive" onClick={() => setDeleteOpen(true)}>
-          <Trash2 className="h-4 w-4" />Delete
+        <Button size="sm" variant="outline" className="gap-2 text-muted-foreground hover:text-foreground" onClick={() => setDeleteOpen(true)}>
+          <Archive className="h-4 w-4" />Archive
         </Button>
       )}
 
@@ -183,13 +183,13 @@ export function TenantActions({
         </SheetContent>
       </Sheet>
 
-      {/* Delete Confirmation */}
+      {/* Archive Confirmation */}
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete tenant?</AlertDialogTitle>
+            <AlertDialogTitle>Archive tenant?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete <strong>{tenant.firstName} {tenant.lastName}</strong> and all associated data. This action cannot be undone.
+              <strong>{tenant.firstName} {tenant.lastName}</strong> will be archived. All their records — lease history, rent payments, ledger, and documents — are permanently preserved and can still be accessed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -197,9 +197,8 @@ export function TenantActions({
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleting ? "Deleting…" : "Delete tenant"}
+              {deleting ? "Archiving…" : "Archive tenant"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

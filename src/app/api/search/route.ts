@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
       prisma.tenant.findMany({
         where: {
           organizationId,
+          archivedAt: null,
           OR: [
             { firstName: contains },
             { lastName: contains },
