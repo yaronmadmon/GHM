@@ -19,18 +19,33 @@ export type ExpenseField =
 
 export type BillingPeriod = "monthly" | "quarterly" | "annual" | "unknown";
 
+export type LegalSubtype =
+  | "court_summons"      // court summons, subpoena, order to appear
+  | "eviction_filing"   // eviction complaint, unlawful detainer, dispossessory
+  | "lawsuit"           // civil complaint, lawsuit, legal action filed against owner
+  | "lien"              // mechanic's lien, tax lien, judgment lien
+  | "code_violation"    // municipal/building code violation, health inspection failure
+  | "demand_letter"     // attorney demand letter, formal written demand
+  | "shut_off_warning"  // utility shut-off / termination warning
+  | "past_due_notice"   // past-due / delinquency notice from vendor or municipality
+  | "violation_notice"  // HOA violation, lease violation, zoning notice
+  | "other_notice"      // any other notice not fitting above
+  | null;               // not a notice/legal document
+
 export interface ParsedDocument {
   confidence_score: number;
   extracted_data: {
     property_id: string | null;
     property_name_found: string | null;
     document_type: "utility" | "maintenance" | "tax" | "insurance" | "legal" | "notice" | "other";
+    /** Fine-grained classification for notices and legal documents */
+    legal_subtype: LegalSubtype;
     vendor: string | null;
     /** Current period charges ONLY — never the total-due or past-due balance */
     amount: number | null;
     /** Past-due / overdue balance shown on the document, separate from current charges */
     past_due_amount: number | null;
-    /** True when the document is primarily a past-due / delinquency / shut-off notice */
+    /** True when the document is primarily a past-due / delinquency / shut-off / legal notice */
     is_past_due_notice: boolean;
     issue_date: string | null;
     due_date: string | null;
@@ -52,61 +67,67 @@ Return a JSON object with exactly this structure:
     "property_id": <string id from properties list, or null if no confident match>,
     "property_name_found": <string name/address found on document, or null>,
     "document_type": <one of: "utility" | "maintenance" | "tax" | "insurance" | "legal" | "notice" | "other">,
-    "vendor": <string vendor/issuer name, or null>,
+    "legal_subtype": <one of the legal subtypes below, or null if not a notice/legal document>,
+    "vendor": <string vendor/issuer/plaintiff/agency name, or null>,
     "amount": <number — CURRENT PERIOD charges only, or null. See amount rules below.>,
     "past_due_amount": <number — any past-due/overdue balance shown, or null>,
-    "is_past_due_notice": <boolean — true if document is primarily a delinquency/shut-off/past-due notice>,
+    "is_past_due_notice": <boolean — true if document is primarily a delinquency/shut-off/legal notice>,
     "issue_date": <string "YYYY-MM-DD" or null>,
-    "due_date": <string "YYYY-MM-DD" or null>,
-    "expense_field": <one of: "property_tax" | "water_sewer" | "electricity" | "gas" | "insurance" | "mortgage" | "hoa" | "other_expense" | null>,
+    "due_date": <string "YYYY-MM-DD" — for legal docs use the response/hearing/compliance deadline if present>,
+    "expense_field": <one of the expense fields below, or null>,
     "billing_period": <one of: "monthly" | "quarterly" | "annual" | "unknown">
   },
   "flags": {
     "is_amount_uncertain": <boolean>,
     "requires_manual_split": <boolean — true if document covers multiple properties>,
-    "extraction_notes": <string — any caveats or notes about extraction>
+    "extraction_notes": <string — any caveats, deadlines, or action items the owner should know>
   }
 }
 
-CRITICAL — amount extraction rules:
-Many bills show multiple dollar figures. You MUST separate them correctly:
-- "amount" = ONLY the current billing period's new charges (e.g., "Current Charges: $200", "New Charges: $180")
-- "past_due_amount" = any overdue / past-due balance carried forward from prior periods (e.g., "Past Due: $2,000", "Previous Balance: $1,500", "Amount Past Due: $800")
-- NEVER use the "Total Amount Due" or "Balance Due" as amount if it includes a past-due component — use only the current period charges
-- If the bill shows ONLY a single total with no breakdown, use that as amount and set past_due_amount to null
-- If you cannot confidently separate them, set is_amount_uncertain to true and explain in extraction_notes
+legal_subtype values — assign the most specific one that applies:
+- "court_summons"     → court summons, subpoena, order to show cause, order to appear in court
+- "eviction_filing"   → eviction complaint, unlawful detainer, dispossessory warrant, summary possession
+- "lawsuit"           → civil complaint, lawsuit, legal action filed against the property owner or LLC
+- "lien"              → mechanic's lien, materialman's lien, tax lien, judgment lien filed on the property
+- "code_violation"    → building code violation, fire code violation, health/housing inspection failure, city/municipal notice of violation
+- "demand_letter"     → formal attorney demand letter, cease-and-desist, written legal demand for payment or action
+- "shut_off_warning"  → utility shut-off notice, termination of service warning (gas, electric, water)
+- "past_due_notice"   → past-due / delinquency notice from a vendor, lender, or municipality (not a court filing)
+- "violation_notice"  → HOA violation notice, lease violation warning, zoning violation, regulatory notice
+- "other_notice"      → any other notice, warning, or demand that requires owner attention but doesn't fit above
+- null                → regular bill, receipt, insurance policy, tax document, or other non-notice document
 
 document_type rules:
+- Court filing, lawsuit, lien → "legal"
+- Past-due notice, shut-off, code violation, demand letter, HOA violation → "notice"
 - Regular utility/tax/insurance/maintenance bill → use that specific type
-- Past-due notice, delinquency notice, shut-off warning, violation notice, code violation, court summons, legal demand letter → "notice"
-- Mixed bill with past-due balance BUT primarily a regular bill → use the bill type (utility/tax/etc.) and populate past_due_amount
+- Unknown → "other"
 
-is_past_due_notice = true when: the document is primarily a warning/notice/demand rather than a regular bill (even if it contains an amount)
+CRITICAL — amount extraction rules:
+Many bills show multiple dollar figures. You MUST separate them correctly:
+- "amount" = ONLY the current billing period's new charges (e.g., "Current Charges: $200")
+- "past_due_amount" = any overdue balance carried forward (e.g., "Past Due: $2,000")
+- For legal documents, "amount" = the amount being claimed/demanded, "past_due_amount" = null
+- NEVER use "Total Amount Due" as amount if it includes a past-due component
+- If only one total exists with no breakdown, use it as amount; set past_due_amount null
 
-expense_field mapping rules:
-- Property tax bill → "property_tax"
-- Water, sewer, or water+sewer bill → "water_sewer"
-- Electric/electricity bill → "electricity"
-- Gas/natural gas bill → "gas"
-- Homeowners, landlord, or property insurance → "insurance"
-- Mortgage statement → "mortgage"
-- HOA or condo fee → "hoa"
-- Other recurring expense → "other_expense"
-- One-time expense, receipt, maintenance invoice, notice, or unknown → null
+expense_field mapping (only for regular recurring bills, not notices/legal docs):
+- Property tax → "property_tax" | Water/sewer → "water_sewer" | Electric → "electricity"
+- Gas → "gas" | Insurance → "insurance" | Mortgage → "mortgage" | HOA → "hoa"
+- Other recurring → "other_expense" | Notice/legal/one-time → null
 
-billing_period rules:
-- Monthly bill → "monthly"
-- Quarterly bill → "quarterly"
-- Annual property tax or yearly bill → "annual"
-- Not determinable → "unknown"
+extraction_notes — for legal documents ALWAYS include:
+- Any deadline, hearing date, or response-by date mentioned
+- The nature of the claim or violation
+- Any specific action required (appear in court, pay by X, remedy violation by X)
 
 Property matching rules — CRITICAL:
 - The property_id you return determines which folder the document is filed into. Get this right.
-- Match aggressively using ANY of: street number, street name, city, zip code, account number, service address, account name, property name
-- A match on street number + street name alone is a confident match — full address agreement is not required
-- Utility bills (gas, electric, water) always have a service address — extract it and match against the properties list
-- If the portfolio has only one property and the document appears to be a property-related bill or notice, match it to that property
-- Only return null for property_id if the document is clearly unrelated to any listed property (e.g., a personal document, an unrelated business receipt)
+- Match on ANY of: street number, street name, city, zip, account number, service address, property name
+- Street number + street name alone = confident match
+- Utility bills always have a service address — extract and match it
+- If portfolio has one property and doc appears property-related, match it
+- Only return null if document is clearly unrelated to any listed property
 - When uncertain between two properties, pick the closest match rather than returning null
 `;
 
@@ -163,10 +184,14 @@ export async function parsePropertyDocument(
       : "(no properties in portfolio yet)";
 
   const systemPrompt =
-    `You are a real estate document parsing engine. Analyze this landlord document and extract structured data.\n\n` +
-    `Match the property to the known properties list using ANY identifying info on the document — ` +
-    `property name, street number, street name, city, zip code, account number, or utility service address. ` +
-    `Partial address matches are sufficient — if the street number and street name match, that is a confident match.\n\n` +
+    `You are a real estate document parsing engine for a property management company. ` +
+    `Analyze this document and extract structured data.\n\n` +
+    `You must correctly identify ALL types of documents landlords receive: utility bills, ` +
+    `tax documents, insurance, maintenance invoices, court summonses, eviction filings, ` +
+    `lawsuits, liens, code violations, demand letters, shut-off notices, and HOA/lease violations. ` +
+    `For legal documents, extract any deadlines or required actions into extraction_notes.\n\n` +
+    `Match the property using ANY identifying info on the document. ` +
+    `Street number + street name alone is enough for a confident match.\n\n` +
     `Known properties:\n${propertiesList}\n\n` +
     SCHEMA_DESCRIPTION;
 
@@ -208,10 +233,11 @@ export async function parsePropertyDocument(
   if (!content) throw new Error("Empty response from OpenAI");
   const parsed = JSON.parse(content) as ParsedDocument;
 
-  // Ensure new fields exist even if model omitted them (backwards safety)
+  // Ensure new fields exist even if model omitted them
   if (parsed.extracted_data) {
     parsed.extracted_data.past_due_amount ??= null;
     parsed.extracted_data.is_past_due_notice ??= false;
+    parsed.extracted_data.legal_subtype ??= null;
   }
 
   return parsed;

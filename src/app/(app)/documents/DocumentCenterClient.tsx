@@ -129,6 +129,32 @@ function isPdfUrl(url: string) {
 
 // ─── Doc Type Badge ───────────────────────────────────────────────────────────
 
+const LEGAL_SUBTYPE_LABELS: Record<string, string> = {
+  court_summons: "Court Summons",
+  eviction_filing: "Eviction Filing",
+  lawsuit: "Lawsuit",
+  lien: "Lien",
+  code_violation: "Code Violation",
+  demand_letter: "Demand Letter",
+  shut_off_warning: "Shut-Off Warning",
+  past_due_notice: "Past-Due Notice",
+  violation_notice: "Violation Notice",
+  other_notice: "Notice",
+};
+
+const LEGAL_SUBTYPE_COLORS: Record<string, string> = {
+  court_summons: "bg-red-100 text-red-800 border-red-300",
+  eviction_filing: "bg-red-100 text-red-800 border-red-300",
+  lawsuit: "bg-red-100 text-red-800 border-red-300",
+  lien: "bg-red-100 text-red-800 border-red-300",
+  code_violation: "bg-orange-100 text-orange-800 border-orange-300",
+  demand_letter: "bg-orange-100 text-orange-800 border-orange-300",
+  shut_off_warning: "bg-red-100 text-red-800 border-red-300",
+  past_due_notice: "bg-amber-100 text-amber-700 border-amber-200",
+  violation_notice: "bg-orange-100 text-orange-800 border-orange-300",
+  other_notice: "bg-amber-100 text-amber-700 border-amber-200",
+};
+
 const DOC_TYPE_COLORS: Record<string, string> = {
   utility: "bg-blue-100 text-blue-700 border-blue-200",
   maintenance: "bg-orange-100 text-orange-700 border-orange-200",
@@ -408,6 +434,8 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
           amount: form.amount ? parseFloat(form.amount) : null,
           pastDueAmount: form.pastDueAmount ? parseFloat(form.pastDueAmount) : null,
           isPastDueNotice,
+          legalSubtype: parsedDoc?.extracted_data?.legal_subtype ?? null,
+          extractionNotes: parsedDoc?.flags?.extraction_notes ?? "",
           issueDate: form.issueDate || null,
           dueDate: form.dueDate || null,
           confidenceScore: parsedDoc?.confidence_score ?? null,
@@ -569,14 +597,37 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
               </p>
             </div>
 
-            {isPastDueNotice && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
-                  This is a notice — a follow-up task will be created automatically.
-                </p>
-              </div>
-            )}
+            {isPastDueNotice && (() => {
+              const subtype = parsedDoc?.extracted_data?.legal_subtype;
+              const subtypeLabel = subtype ? LEGAL_SUBTYPE_LABELS[subtype] : null;
+              const subtypeColor = subtype ? LEGAL_SUBTYPE_COLORS[subtype] : null;
+              const isUrgent = ["court_summons","eviction_filing","lawsuit","lien","shut_off_warning"].includes(subtype ?? "");
+              const deadline = parsedDoc?.extracted_data?.due_date;
+              const extractionNotes = parsedDoc?.flags?.extraction_notes;
+              return (
+                <div className={`rounded-md border px-3 py-2 space-y-1 ${isUrgent ? "border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700" : "border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700"}`}>
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className={`h-4 w-4 shrink-0 ${isUrgent ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`} />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {subtypeLabel && subtypeColor && (
+                        <Badge variant="outline" className={`text-xs ${subtypeColor}`}>{subtypeLabel}</Badge>
+                      )}
+                      <p className={`text-xs font-medium ${isUrgent ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"}`}>
+                        {isUrgent ? "Urgent — task and notification will be created." : "A follow-up task will be created automatically."}
+                      </p>
+                    </div>
+                  </div>
+                  {deadline && (
+                    <p className={`text-xs pl-6 font-semibold ${isUrgent ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"}`}>
+                      Deadline / court date: {new Date(deadline).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                    </p>
+                  )}
+                  {extractionNotes && (
+                    <p className="text-xs pl-6 text-muted-foreground italic">{extractionNotes}</p>
+                  )}
+                </div>
+              );
+            })()}
             {!isPastDueNotice && hasPastDue && (
               <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
