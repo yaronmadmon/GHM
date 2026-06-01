@@ -74,7 +74,7 @@ export function ChatWidget() {
   // Welcome message when panel opens
   useEffect(() => {
     if (open && messages.length === 0) {
-      const welcome = "Hey! I'm your property assistant. I can look things up and take actions for you — just tell me what you need.";
+      const welcome = "Hey! I'm your Office Manager. I can look things up and take actions for you — just tell me what you need.";
       setMessages([{
         id: "welcome",
         role: "assistant",
@@ -300,7 +300,7 @@ export function ChatWidget() {
               <Bot className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="font-semibold text-sm">Property Assistant</p>
+              <p className="font-semibold text-sm">Office Manager</p>
               <p className="text-xs text-muted-foreground">
                 {speaking ? "Speaking…" : streaming ? "Thinking…" : listening ? "Listening…" : "Ready"}
               </p>

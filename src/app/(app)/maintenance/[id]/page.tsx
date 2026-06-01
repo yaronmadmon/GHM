@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Wrench, MessageSquare, Send, ExternalLink, Camera, Trash2, Upload, Loader2 } from "lucide-react";
+import { ArrowLeft, Wrench, MessageSquare, Send, ExternalLink, Camera, Trash2, Upload, Loader2, Sparkles } from "lucide-react";
 import { useRef } from "react";
 import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
@@ -40,7 +40,20 @@ export default function MaintenanceDetailPage() {
   const [posting, setPosting] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [triaging, setTriaging] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  async function runTriage() {
+    setTriaging(true);
+    const res = await fetch(`/api/maintenance/${id}/triage`, { method: "POST" });
+    setTriaging(false);
+    if (!res.ok) { toast.error("AI triage failed"); return; }
+    const { triage, commentId } = await res.json();
+    toast.success(`AI triage complete · ${triage.priority} priority · ${triage.category}`);
+    // Reload comments and request to show updated fields
+    const updated = await fetch(`/api/maintenance/${id}`).then((r) => r.json());
+    setRequest(updated);
+  }
 
   useEffect(() => {
     fetch(`/api/maintenance/${id}`).then((r) => r.json()).then(setRequest).catch(() => {});
@@ -120,6 +133,17 @@ export default function MaintenanceDetailPage() {
           </p>
         </div>
         <Badge className={`border shrink-0 ${PRIORITY_STYLES[request.priority] ?? ""}`}>{request.priority}</Badge>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5 shrink-0"
+          disabled={triaging}
+          onClick={runTriage}
+          title="Let AI classify this request and draft a tenant response"
+        >
+          {triaging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {triaging ? "Triaging…" : "AI Triage"}
+        </Button>
       </div>
 
       {/* Status + update */}

@@ -3,25 +3,37 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Building2, DollarSign, Wrench, ClipboardList } from "lucide-react";
+import { Coffee, DollarSign, MessageSquare, Users, Wrench } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 const items = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/properties", label: "Properties", icon: Building2 },
+  { href: "/todays-office", label: "Office", icon: Coffee },
+  { href: "/tenants", label: "Tenants", icon: Users },
   { href: "/rent", label: "Rent", icon: DollarSign },
+  { href: "/messages", label: "Messages", icon: MessageSquare, badgeKey: "messages" },
   { href: "/maintenance", label: "Maintenance", icon: Wrench },
-  { href: "/applications", label: "Applications", icon: ClipboardList },
 ];
 
-export function BottomNav({ pendingApplications = 0 }: { pendingApplications?: number }) {
+interface BottomNavProps {
+  pendingApplications?: number;
+  unreadMessages?: number;
+}
+
+export function BottomNav({ pendingApplications = 0, unreadMessages = 0 }: BottomNavProps) {
   const pathname = usePathname();
+
+  const badges: Record<string, number> = {
+    applications: pendingApplications,
+    messages: unreadMessages,
+  };
+
   return (
     <nav className="safe-area-bottom fixed inset-x-0 bottom-0 z-40 border-t bg-card/96 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] backdrop-blur md:hidden">
       <div className="flex">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-          const badge = item.href === "/applications" && pendingApplications > 0 ? pendingApplications : 0;
+          const badgeCount = item.badgeKey ? badges[item.badgeKey] ?? 0 : 0;
           return (
             <Link
               key={item.href}
@@ -34,9 +46,9 @@ export function BottomNav({ pendingApplications = 0 }: { pendingApplications?: n
               {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-primary" />}
               <span className="relative">
                 <Icon className="h-5 w-5" />
-                {badge > 0 && (
+                {badgeCount > 0 && (
                   <span className="absolute -top-1 -right-1.5 h-4 min-w-4 rounded-full bg-destructive text-destructive-foreground text-[9px] flex items-center justify-center px-0.5">
-                    {badge}
+                    {badgeCount}
                   </span>
                 )}
               </span>

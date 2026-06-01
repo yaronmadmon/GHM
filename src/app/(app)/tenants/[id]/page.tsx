@@ -7,13 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Activity,
+  AlertCircle,
   ArrowLeft,
   Calendar,
   CheckCircle2,
+  CheckSquare,
   CircleDollarSign,
   ClipboardList,
   CreditCard,
+  ExternalLink,
   FileText,
+  FolderOpen,
   Home,
   Mail,
   MessageSquare,
@@ -30,6 +34,9 @@ import { TenantMessageButton } from "@/components/tenants/TenantMessageButton";
 import { SendPortalInviteButton } from "@/components/tenants/SendPortalInviteButton";
 import { TenantActions } from "@/components/tenants/TenantActions";
 import { MonthlyChargesManager } from "@/components/tenants/MonthlyChargesManager";
+import { TenantChargeButton } from "@/components/tenants/TenantChargeButton";
+import { NoticeDraftButton } from "@/components/tenants/NoticeDraftButton";
+import { MoveOutButton } from "@/components/tenants/MoveOutButton";
 
 type Occupant = {
   name?: string;
@@ -130,7 +137,7 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
 
   if (!tenant) notFound();
 
-  const [existingThread, messageThreads, activityEvents] = await Promise.all([
+  const [existingThread, messageThreads, activityEvents, tenantTasks, needsReviewDocs] = await Promise.all([
     tenant.portalUserId
       ? prisma.messageThread.findFirst({
           where: {
@@ -162,8 +169,30 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
       },
       include: { actor: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+    prisma.task.findMany({
+      where: { organizationId: session.user.organizationId, tenantId: tenant.id },
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
       take: 10,
     }),
+    // Low-confidence property documents for their current unit's property
+    (() => {
+      const propId = tenant.leaseLinks.find((l) => l.lease?.status === "active")?.lease?.unit?.property?.id;
+      if (!propId) return Promise.resolve([]);
+      return prisma.propertyDocument.findMany({
+        where: {
+          organizationId: session.user.organizationId,
+          propertyId: propId,
+          OR: [
+            { confidenceScore: { lt: 0.6 } },
+            { confidenceScore: null },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      });
+    })(),
   ]);
 
   const activeLease = tenant.leaseLinks.find((link) => link.lease?.status === "active")?.lease;
@@ -187,6 +216,11 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
   })) ?? [];
   const monthlyChargeTotal = monthlyCharges.reduce((sum, charge) => sum + charge.amount, 0);
   const monthlyTotalDue = Number(activeLease?.rentAmount ?? 0) + monthlyChargeTotal;
+  const adHocCharges = (activeLease?.transactions ?? [])
+    .filter((t) => t.category !== "rent")
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 10)
+    .map((t) => ({ ...t, amount: Number(t.amount), date: t.date.toISOString() }));
   const latestRentPayment = latestDate(activeLease?.rentPayments.map((payment) => payment.paidAt ?? null) ?? []);
   const latestLedgerPayment = latestDate(
     activeLease?.transactions
@@ -196,6 +230,19 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
   const lastReceipt = latestDate([latestRentPayment, latestLedgerPayment]);
   const portalActive = Boolean(tenant.portalUserId);
   const statusLabel = currentBalance > 0 ? "Balance Due" : "Current";
+
+  // Missing documents checklist
+  const appDocTypes = new Set(app?.documents.map((d) => d.docType ?? "") ?? []);
+  const missingDocs: { label: string; href?: string }[] = [];
+  if (activeLease && activeLease.signingStatus !== "fully_signed") {
+    missingDocs.push({ label: "Lease not fully signed", href: `/leases/${activeLease.id}` });
+  }
+  if (app && !appDocTypes.has("government_id")) {
+    missingDocs.push({ label: "Government ID not on file" });
+  }
+  if (app && !appDocTypes.has("pay_stub")) {
+    missingDocs.push({ label: "Proof of income not on file" });
+  }
   const propertyLine = activeLease
     ? `${activeLease.unit.property.name} - ${activeLease.unit.unitNumber} | ${activeLease.unit.property.addressLine1} - ${activeLease.unit.unitNumber}, ${activeLease.unit.property.city}, ${activeLease.unit.property.state} ${activeLease.unit.property.zip}`
     : "No active occupancy";
@@ -240,6 +287,24 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
               Ledger
             </Button>
           </Link>
+          <Link href={`/tenants/${id}/court-packet`}>
+            <Button size="sm" variant="outline" className="gap-2">
+              <FileText className="h-4 w-4" />
+              Court Packet
+            </Button>
+          </Link>
+          <NoticeDraftButton
+            tenantId={id}
+            leaseId={activeLease?.id}
+            tenantName={tenantName}
+          />
+          {activeLease && (
+            <MoveOutButton
+              leaseId={activeLease.id}
+              tenantName={tenantName}
+              currentMoveOutDate={activeLease.moveOutDate?.toISOString() ?? null}
+            />
+          )}
           {portalActive ? (
             <TenantMessageButton
               tenantUserId={tenant.portalUserId!}
@@ -491,6 +556,37 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
               <p className="text-sm text-muted-foreground">No recurring charges configured.</p>
             )}
           </Section>
+
+          <Section
+            title="Tenant Charges"
+            icon={<CircleDollarSign className="h-4 w-4" />}
+            action={activeLease ? (
+              <TenantChargeButton leaseId={activeLease.id} tenantName={tenantName} />
+            ) : null}
+          >
+            {adHocCharges.length > 0 ? (
+              <div className="space-y-2 text-sm">
+                {adHocCharges.map((charge) => (
+                  <div key={charge.id} className="flex items-center justify-between rounded-lg border p-3">
+                    <div>
+                      <p className="font-medium capitalize">{charge.description ?? charge.category.replace(/_/g, " ")}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(new Date(charge.date))}</p>
+                    </div>
+                    <p className={`font-mono font-semibold ${charge.type === "expense" ? "text-emerald-600" : "text-destructive"}`}>
+                      {charge.type === "expense" ? "−" : "+"}{formatCurrency(charge.amount)}
+                    </p>
+                  </div>
+                ))}
+                <Link href={`/tenants/${id}/ledger`} className="block text-right text-xs text-primary hover:underline">
+                  Full ledger →
+                </Link>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {activeLease ? "No charges recorded yet." : "No active lease."}
+              </p>
+            )}
+          </Section>
         </div>
 
         <div className="space-y-5">
@@ -502,7 +598,38 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             <Field label="In Collections" value="No" />
             <Field label="Certified Funds Only" value="No" />
             <Field label="Eligible for Renewal" value="Yes" />
+            {activeLease?.moveOutDate && (
+              <Field
+                label="Move-Out Date"
+                value={
+                  <span className="text-amber-700 dark:text-amber-300 font-medium">
+                    {formatDate(activeLease.moveOutDate)}
+                    {activeLease.moveOutNoticedAt && ` (noticed ${formatDate(activeLease.moveOutNoticedAt)})`}
+                  </span>
+                }
+              />
+            )}
           </Section>
+
+          {activeLease?.moveOutDate && (() => {
+            const depositHeld = Number(activeLease.depositAmount ?? 0);
+            const deductions = adHocCharges
+              .filter((c) => c.category === "deposit" && c.type === "income")
+              .reduce((sum, c) => sum + c.amount, 0);
+            const returnAmount = Math.max(0, depositHeld - deductions);
+            return (
+              <Section title="Deposit Return" icon={<CircleDollarSign className="h-4 w-4 text-amber-500" />}>
+                <div className="space-y-1.5 text-sm">
+                  <Field label="Deposit held" value={formatCurrency(depositHeld)} />
+                  <Field label="Deductions" value={<span className="text-destructive">{deductions > 0 ? `−${formatCurrency(deductions)}` : "None"}</span>} />
+                  <Field label="Amount to return" value={<span className="font-semibold text-emerald-600">{formatCurrency(returnAmount)}</span>} />
+                  {activeLease.depositReturnedAt && (
+                    <Field label="Returned on" value={formatDate(activeLease.depositReturnedAt)} />
+                  )}
+                </div>
+              </Section>
+            );
+          })()}
 
           <Section title="Online Portal Status" icon={<CreditCard className="h-4 w-4" />} action={<Button variant="ghost" size="sm">Edit</Button>}>
             <div className="space-y-3 text-sm">
@@ -522,6 +649,34 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
             <Field label="Name" value={tenant.emergencyContactName ?? app?.emergencyContactName ?? "--"} />
             <Field label="Phone" value={tenant.emergencyContactPhone ?? app?.emergencyContactPhone ?? "--"} />
             <Field label="Relation" value={app?.emergencyContactRelation ?? "--"} />
+          </Section>
+
+          <Section
+            title="Tasks"
+            icon={<CheckSquare className="h-4 w-4" />}
+            action={
+              <Link href={`/tasks`}>
+                <Button variant="ghost" size="sm" className="text-xs">View all</Button>
+              </Link>
+            }
+          >
+            {tenantTasks.length > 0 ? (
+              <div className="space-y-2 text-sm">
+                {tenantTasks.map((task) => (
+                  <div key={task.id} className="flex items-start gap-2 rounded-lg border p-2.5">
+                    <div className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${task.status === "done" ? "bg-emerald-500" : task.priority === "urgent" ? "bg-red-500" : task.priority === "high" ? "bg-orange-500" : "bg-amber-400"}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className={`font-medium ${task.status === "done" ? "line-through text-muted-foreground" : ""}`}>{task.title}</p>
+                      {task.dueDate && (
+                        <p className="text-xs text-muted-foreground">{formatDate(task.dueDate)}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No tasks for this tenant.</p>
+            )}
           </Section>
 
           <Section title="Upcoming Activities" icon={<Calendar className="h-4 w-4" />}>
@@ -574,46 +729,99 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
         </div>
       </div>
 
-      <Section title="Audit Log" icon={<Activity className="h-4 w-4" />}>
+      <Section title="Activity Timeline" icon={<Activity className="h-4 w-4" />}>
         {activityEvents.length > 0 ? (
           <div className="space-y-2">
-            {activityEvents.map((event) => (
-              <div key={event.id} className="flex gap-3 border-b py-2 text-sm last:border-0">
-                <div className="w-36 shrink-0 text-muted-foreground">{formatDate(event.createdAt)}</div>
-                <div>
-                  <p className="font-medium capitalize">{event.eventType.replace("_", " ")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {event.entityType} record updated{event.actor?.name ? ` by ${event.actor.name}` : ""}
-                  </p>
+            {activityEvents.map((event) => {
+              const labelMap: Record<string, string> = {
+                payment_recorded: "Payment recorded",
+                status_changed: "Status changed",
+                created: "Record created",
+                updated: "Record updated",
+              };
+              const label = labelMap[event.eventType] ?? event.eventType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+              return (
+                <div key={event.id} className="flex gap-3 border-b py-2 text-sm last:border-0">
+                  <div className="w-36 shrink-0">
+                    <p className="text-muted-foreground">{formatDate(event.createdAt)}</p>
+                    <p className="text-xs text-muted-foreground">{formatRelativeTime(event.createdAt)}</p>
+                  </div>
+                  <div>
+                    <p className="font-medium">{label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="capitalize">{event.entityType}</span>
+                      {event.actor?.name ? ` · ${event.actor.name}` : ""}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No audit events recorded.</p>
+          <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
         )}
       </Section>
 
-      <Section title="Attachments" icon={<FileText className="h-4 w-4" />}>
-        {app?.documents.length || activeLease?.documents.length ? (
+      <Section title="Documents" icon={<FolderOpen className="h-4 w-4" />}>
+        {(activeLease?.documents.length ?? 0) + (app?.documents.length ?? 0) > 0 ? (
           <div className="grid gap-2 md:grid-cols-2">
             {activeLease?.documents.map((doc) => (
-              <a key={doc.id} href={doc.url} className="rounded-lg border p-3 text-sm hover:border-primary/40">
-                <p className="font-medium">{doc.name}</p>
-                <p className="text-xs text-muted-foreground">Lease document</p>
+              <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg border p-3 text-sm hover:border-primary/40">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{doc.name}</p>
+                  <p className="text-xs text-muted-foreground">Lease document</p>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               </a>
             ))}
             {app?.documents.map((doc) => (
-              <a key={doc.id} href={doc.url} className="rounded-lg border p-3 text-sm hover:border-primary/40">
-                <p className="font-medium">{doc.name}</p>
-                <p className="text-xs text-muted-foreground">{doc.docType ?? "Application document"}</p>
+              <a key={doc.id} href={doc.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-lg border p-3 text-sm hover:border-primary/40">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{doc.name}</p>
+                  <p className="text-xs capitalize text-muted-foreground">{(doc.docType ?? "application document").replace(/_/g, " ")}</p>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               </a>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No files attached.</p>
+          <p className="text-sm text-muted-foreground">No documents on file.</p>
         )}
       </Section>
+
+      {(needsReviewDocs.length > 0 || missingDocs.length > 0) && (
+        <Section title="Needs Review" icon={<AlertCircle className="h-4 w-4 text-amber-500" />}>
+          <div className="space-y-2 text-sm">
+            {missingDocs.map((item) => (
+              <div key={item.label} className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-500/5 px-3 py-2.5 dark:border-amber-900">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="text-amber-800 dark:text-amber-300">{item.label}</span>
+                </div>
+                {item.href && (
+                  <Link href={item.href} className="shrink-0 text-xs text-primary hover:underline">
+                    Fix →
+                  </Link>
+                )}
+              </div>
+            ))}
+            {needsReviewDocs.map((doc) => (
+              <div key={doc.id} className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{doc.fileName}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {doc.documentType.replace(/_/g, " ")}
+                    {doc.confidenceScore != null && ` · ${Math.round(doc.confidenceScore * 100)}% confidence`}
+                  </p>
+                </div>
+                <Link href="/documents" className="ml-3 shrink-0 text-xs text-primary hover:underline">
+                  Review →
+                </Link>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {pastLeases.length > 0 && (
         <Section title="Past Leases" icon={<Home className="h-4 w-4" />}>

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 type CalEvent = {
   date: Date;
-  type: "lease-expiry" | "rent-due" | "maintenance" | "renewal-reminder";
+  type: "lease-expiry" | "rent-due" | "maintenance" | "renewal-reminder" | "task-due" | "bill-due";
   label: string;
   href: string;
 };
@@ -19,7 +19,7 @@ async function getCalendarEvents(organizationId: string) {
   const now = new Date();
   const sixMonthsOut = addMonths(now, 6);
 
-  const [activeLeases, openMaintenance] = await Promise.all([
+  const [activeLeases, openMaintenance, dueTasks, dueBills] = await Promise.all([
     prisma.lease.findMany({
       where: { organizationId, status: "active" },
       include: {
@@ -32,6 +32,25 @@ async function getCalendarEvents(organizationId: string) {
       include: { unit: { include: { property: true } } },
       orderBy: { createdAt: "desc" },
       take: 20,
+    }),
+    prisma.task.findMany({
+      where: {
+        organizationId,
+        status: { in: ["open", "in_progress", "waiting"] },
+        dueDate: { gte: now, lte: sixMonthsOut },
+      },
+      orderBy: { dueDate: "asc" },
+      take: 30,
+    }),
+    prisma.bill.findMany({
+      where: {
+        organizationId,
+        status: { in: ["approved", "needs_review"] },
+        dueDate: { gte: now, lte: sixMonthsOut },
+      },
+      include: { vendor: { select: { name: true } } },
+      orderBy: { dueDate: "asc" },
+      take: 30,
     }),
   ]);
 
@@ -74,6 +93,31 @@ async function getCalendarEvents(organizationId: string) {
     });
   }
 
+  // Task due dates
+  for (const task of dueTasks) {
+    if (task.dueDate) {
+      events.push({
+        date: task.dueDate,
+        type: "task-due",
+        label: task.title,
+        href: "/tasks",
+      });
+    }
+  }
+
+  // Bill due dates
+  for (const bill of dueBills) {
+    if (bill.dueDate) {
+      const vendorLabel = bill.vendor?.name ?? bill.vendorName ?? "Bill";
+      events.push({
+        date: bill.dueDate,
+        type: "bill-due",
+        label: `${vendorLabel} — $${Number(bill.amount).toFixed(0)}`,
+        href: "/bills",
+      });
+    }
+  }
+
   return events.sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
@@ -82,6 +126,8 @@ const EVENT_STYLES: Record<string, string> = {
   "rent-due": "bg-blue-500/15 text-blue-700 border-blue-200",
   "maintenance": "bg-red-500/15 text-red-600 border-red-200",
   "renewal-reminder": "bg-purple-500/15 text-purple-700 border-purple-200",
+  "task-due": "bg-emerald-500/15 text-emerald-700 border-emerald-200",
+  "bill-due": "bg-orange-500/15 text-orange-700 border-orange-200",
 };
 
 const EVENT_DOT: Record<string, string> = {
@@ -89,6 +135,8 @@ const EVENT_DOT: Record<string, string> = {
   "rent-due": "bg-blue-500",
   "maintenance": "bg-red-500",
   "renewal-reminder": "bg-purple-500",
+  "task-due": "bg-emerald-500",
+  "bill-due": "bg-orange-500",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -96,6 +144,8 @@ const EVENT_LABELS: Record<string, string> = {
   "rent-due": "Rent Due",
   "maintenance": "Maintenance",
   "renewal-reminder": "Renewal",
+  "task-due": "Task Due",
+  "bill-due": "Bill Due",
 };
 
 export default async function CalendarPage() {

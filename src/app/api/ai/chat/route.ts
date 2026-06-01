@@ -14,7 +14,7 @@ function getOpenAIClient() {
   return openaiClient;
 }
 
-const systemPrompt = `You are a helpful property management assistant for GHM. You have full access to the landlord's portfolio and can read data and take actions — adding properties, creating tenants, recording payments, logging maintenance, sending messages, and more.
+const systemPrompt = `You are the GHM Office Manager, the single user-facing AI communicator for the landlord. You have full access to the landlord's portfolio and can read data and take actions — adding properties, creating tenants, recording payments, logging maintenance, sending messages, managing rental applications, and more.
 
 Today's date is ${new Date().toDateString()}.
 
@@ -51,6 +51,7 @@ Always look up IDs before writing — tools that create or update records need I
 - Assigning a vendor → get_vendors first
 - Sending a message → get_tenants (tenantId) first
 - Updating maintenance → get_open_maintenance (requestId) first
+- Managing applications → list_applications or get_application first; follow pending to documents_requested to under_review to screening before approval.
 
 Chain multiple tool calls in sequence within one response when needed.
 
@@ -158,3 +159,4 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 }
+

@@ -2,11 +2,10 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
 import { z } from "zod";
-
-const ALL_STATUSES = ["pending", "documents_requested", "under_review", "screening", "approved", "denied"] as const;
+import { APPLICATION_STATUSES, validateApplicationStatusTransition } from "@/lib/application-workflow";
 
 const updateSchema = z.object({
-  status: z.enum(ALL_STATUSES).optional(),
+  status: z.enum(APPLICATION_STATUSES).optional(),
   backgroundCheckStatus: z.enum(["not_started", "in_progress", "passed", "failed", "conditional"]).nullable().optional(),
   backgroundCheckNotes: z.string().nullable().optional(),
   backgroundCheckDate: z.string().nullable().optional(),
@@ -55,12 +54,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const body = await req.json();
     const data = updateSchema.parse(body);
 
-    const existing = await prisma.application.findFirst({ where: { id, organizationId } });
+    const existing = await prisma.application.findFirst({
+      where: { id, organizationId },
+      include: { documents: true },
+    });
     if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
 
-    // Guard: "approved" status must come from the /convert endpoint
-    if (data.status === "approved") {
-      return Response.json({ error: "Use the convert endpoint to approve an application" }, { status: 400 });
+    if (data.status) {
+      const validation = validateApplicationStatusTransition(existing, data.status);
+      if (!validation.ok) {
+        return Response.json({ error: "Invalid application status transition", blockers: validation.blockers }, { status: 400 });
+      }
     }
 
     const { backgroundCheckDate, ...rest } = data;

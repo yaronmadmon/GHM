@@ -6,8 +6,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, FileText, DollarSign, Users, Send, CheckCircle, Building2 } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { Activity, ArrowLeft, FileText, DollarSign, Users, Send, CheckCircle, Building2 } from "lucide-react";
+import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { toast } from "sonner";
 import { MoveInChecklist } from "@/components/leases/MoveInChecklist";
 
@@ -31,9 +31,14 @@ export default function LeaseDetailPage() {
   const [lease, setLease] = useState<any>(null);
   const [sendingLease, setSendingLease] = useState(false);
   const [countersigning, setCountersigning] = useState(false);
+  const [activityEvents, setActivityEvents] = useState<any[]>([]);
 
   useEffect(() => {
     fetch(`/api/leases/${id}`).then((r) => r.json()).then(setLease).catch(() => {});
+    fetch(`/api/activity?entityType=lease&entityId=${id}`)
+      .then((r) => r.json())
+      .then((data) => setActivityEvents(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, [id]);
 
   async function handleSendForSigning() {
@@ -231,6 +236,41 @@ export default function LeaseDetailPage() {
           <CardContent><p className="text-sm whitespace-pre-wrap">{lease.notes}</p></CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Activity className="h-4 w-4" />Activity Timeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activityEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {activityEvents.map((event: any) => {
+                const labelMap: Record<string, string> = {
+                  payment_recorded: "Payment recorded",
+                  status_changed: "Status changed",
+                  created: "Record created",
+                  updated: "Record updated",
+                };
+                const label = labelMap[event.eventType] ??
+                  event.eventType.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+                return (
+                  <div key={event.id} className="flex gap-3 border-b py-2 text-sm last:border-0">
+                    <div className="w-32 shrink-0 text-muted-foreground">{formatDate(new Date(event.createdAt))}</div>
+                    <div>
+                      <p className="font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground">{event.entityType}{event.actor?.name ? ` · ${event.actor.name}` : ""}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

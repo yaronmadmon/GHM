@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import {
+  AlertCircle,
   ArrowRight,
   Bookmark,
   Bot,
@@ -9,6 +10,7 @@ import {
   Building2,
   CheckCircle2,
   DollarSign,
+  Lightbulb,
   Loader2,
   MessageSquare,
   RefreshCcw,
@@ -135,9 +137,19 @@ type Analysis = {
   };
 };
 
+type PropertyAnalysis = {
+  propertyId: string;
+  healthScore: number;
+  priority: "good" | "attention" | "critical";
+  issues: string[];
+  opportunities: string[];
+  summary: string;
+};
+
 type Result = {
   snapshot: Snapshot;
   analysis: Analysis;
+  propertyAnalyses?: PropertyAnalysis[];
 };
 
 type ChatMessage = {
@@ -610,6 +622,94 @@ export function PortfolioAnalyzerClient() {
           </Card>
         </aside>
       </div>
+
+      {result?.propertyAnalyses?.length ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            Property Health
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[...result.propertyAnalyses]
+              .sort((a, b) => {
+                const order = { critical: 0, attention: 1, good: 2 };
+                return order[a.priority] - order[b.priority];
+              })
+              .map((pa) => {
+                const detail = result.snapshot.propertyDetails?.find((p) => p.id === pa.propertyId);
+                const noi = detail && detail.monthlyExpenses !== null
+                  ? detail.monthlyRentRoll - detail.monthlyExpenses
+                  : null;
+                const scoreColor =
+                  pa.healthScore >= 80 ? "text-emerald-600" :
+                  pa.healthScore >= 60 ? "text-amber-500" : "text-destructive";
+                const borderColor =
+                  pa.priority === "good" ? "border-emerald-500/30" :
+                  pa.priority === "attention" ? "border-amber-500/30" : "border-destructive/30";
+                const badgeClass =
+                  pa.priority === "good" ? "bg-emerald-500/10 text-emerald-600" :
+                  pa.priority === "attention" ? "bg-amber-500/10 text-amber-600" : "bg-destructive/10 text-destructive";
+                return (
+                  <Card key={pa.propertyId} className={`border ${borderColor}`}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <CardTitle className="text-sm font-semibold truncate">{detail?.name ?? "Property"}</CardTitle>
+                          <p className="text-xs text-muted-foreground truncate">{detail?.address ?? ""}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className={`text-xl font-bold ${scoreColor}`}>{pa.healthScore}</span>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badgeClass}`}>
+                            {pa.priority}
+                          </span>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {detail && (
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                          <div className="text-muted-foreground">Occupancy</div>
+                          <div className="text-right font-medium">{detail.occupancyRate}%</div>
+                          <div className="text-muted-foreground">Rent roll</div>
+                          <div className="text-right font-medium">{formatCurrency(detail.monthlyRentRoll)}/mo</div>
+                          {noi !== null && (
+                            <>
+                              <div className="text-muted-foreground">Est. NOI</div>
+                              <div className={`text-right font-medium ${noi >= 0 ? "text-emerald-600" : "text-destructive"}`}>
+                                {formatCurrency(noi)}/mo
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {pa.issues.length > 0 && (
+                        <div className="space-y-1">
+                          {pa.issues.map((issue) => (
+                            <div key={issue} className="flex items-start gap-1.5 text-xs text-destructive">
+                              <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                              <span>{issue}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {pa.opportunities.length > 0 && (
+                        <div className="space-y-1">
+                          {pa.opportunities.map((opp) => (
+                            <div key={opp} className="flex items-start gap-1.5 text-xs text-emerald-600">
+                              <Lightbulb className="h-3 w-3 mt-0.5 shrink-0" />
+                              <span>{opp}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground border-t pt-2">{pa.summary}</p>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+          </div>
+        </div>
+      ) : null}
 
       {result?.analysis.caveats?.length ? (
         <p className="text-xs text-muted-foreground">{result.analysis.caveats.join(" ")}</p>

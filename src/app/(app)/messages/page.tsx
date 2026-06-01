@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquare, Send, Users } from "lucide-react";
+import { Loader2, MessageSquare, Send, Sparkles, Users } from "lucide-react";
 import Link from "next/link";
 import { formatRelativeTime } from "@/lib/utils";
 import { toast } from "sonner";
@@ -33,7 +33,39 @@ export default function MessagesPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [drafting, setDrafting] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  async function draftReply() {
+    if (!activeThread) return;
+    setDrafting(true);
+    const res = await fetch("/api/ai/message-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId: activeThread.id, mode: "reply" }),
+    });
+    setDrafting(false);
+    if (!res.ok) { toast.error("AI draft failed"); return; }
+    const { result } = await res.json();
+    setReply(result);
+    toast.success("Draft ready — review before sending");
+  }
+
+  async function summarizeThread() {
+    if (!activeThread) return;
+    setSummarizing(true);
+    const res = await fetch("/api/ai/message-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId: activeThread.id, mode: "summarize" }),
+    });
+    setSummarizing(false);
+    if (!res.ok) { toast.error("Summarize failed"); return; }
+    const { result } = await res.json();
+    setSummary(result);
+  }
 
   useEffect(() => {
     fetch("/api/messages")
@@ -122,7 +154,25 @@ export default function MessagesPage() {
           {activeThread ? (
             <>
               <CardHeader className="pb-2 border-b">
-                <CardTitle className="text-base">{activeThread.subject}</CardTitle>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base truncate">{activeThread.subject}</CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 shrink-0 h-7 text-xs"
+                    disabled={summarizing}
+                    onClick={() => { setSummary(null); summarizeThread(); }}
+                  >
+                    {summarizing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    Summarize
+                  </Button>
+                </div>
+                {summary && (
+                  <div className="mt-2 rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground whitespace-pre-line">
+                    {summary}
+                    <button className="ml-2 text-primary hover:underline" onClick={() => setSummary(null)}>×</button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
                 {activeThread.messages.map((m) => (
@@ -134,17 +184,29 @@ export default function MessagesPage() {
                 ))}
                 <div ref={bottomRef} />
               </CardContent>
-              <div className="p-4 border-t flex gap-2">
-                <Textarea
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  placeholder="Type a reply..."
-                  className="resize-none"
-                  rows={2}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
-                />
-                <Button onClick={sendReply} disabled={sending || !reply.trim()} size="icon" className="self-end">
-                  <Send className="h-4 w-4" />
+              <div className="p-4 border-t space-y-2">
+                <div className="flex gap-2">
+                  <Textarea
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    placeholder="Type a reply..."
+                    className="resize-none"
+                    rows={2}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                  />
+                  <Button onClick={sendReply} disabled={sending || !reply.trim()} size="icon" className="self-end">
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 h-7 text-xs"
+                  disabled={drafting}
+                  onClick={draftReply}
+                >
+                  {drafting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  {drafting ? "Drafting…" : "AI Draft Reply"}
                 </Button>
               </div>
             </>

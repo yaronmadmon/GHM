@@ -463,6 +463,24 @@ export const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "approve_application_and_create_lease",
+      description: "Approve a screened application and convert it into tenant and lease records after all workflow gates are complete",
+      parameters: {
+        type: "object",
+        properties: {
+          applicationId: { type: "string" },
+          startDate: { type: "string", description: "YYYY-MM-DD" },
+          endDate: { type: "string", description: "YYYY-MM-DD, omit for month-to-month" },
+          rentAmount: { type: "number" },
+          depositAmount: { type: "number" },
+        },
+        required: ["applicationId", "startDate", "rentAmount"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "confirm_move_in",
       description: "Confirm move-in for a fully-signed lease",
       parameters: {

@@ -30,6 +30,8 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { DocumentsSection } from "@/components/applications/DocumentsSection";
 import { ScreeningSection } from "@/components/applications/ScreeningSection";
+import { WorkflowVerificationPanel } from "@/components/applications/WorkflowVerificationPanel";
+import { applicationRequirements } from "@/lib/application-workflow";
 import { formatCurrency } from "@/lib/utils";
 
 interface AppDoc {
@@ -276,16 +278,24 @@ export default function ApplicationDetailPage() {
   const proposedRent = moneyValue(convertForm.rentAmount);
   const incomeRatio = proposedRent > 0 ? totalIncome / proposedRent : null;
   const hasEmail = !!app?.email;
-  const hasDocs = docs.length > 0;
+  const requirementState = app
+    ? applicationRequirements({
+        status: app.status,
+        email: app.email,
+        backgroundCheckStatus: app.backgroundCheckStatus,
+        documents: docs,
+      })
+    : { missingDocuments: [], blockers: [] };
+  const requiredDocsComplete = requirementState.missingDocuments.length === 0;
   const screeningStatus = app?.backgroundCheckStatus ?? "not_started";
   const screeningOk = screeningStatus === "passed" || screeningStatus === "conditional";
   const isApproved = app?.status === "approved";
   const isDenied = app?.status === "denied";
   const leaseStatus = app?.convertedLease?.signingStatus ?? null;
-  const recommendation = getAdvisorRecommendation({ screeningStatus, incomeRatio, hasDocs, hasEmail });
+  const recommendation = getAdvisorRecommendation({ screeningStatus, incomeRatio, hasDocs: requiredDocsComplete, hasEmail });
   const approvalBlockers = [
     !hasEmail ? "Applicant email is missing." : null,
-    !hasDocs ? "At least one supporting document is required." : null,
+    !requiredDocsComplete ? requirementState.blockers.find((blocker) => blocker.startsWith("Required documents")) : null,
     !screeningOk ? "Credit/screening result must be passed or conditional." : null,
     !convertForm.startDate ? "Lease start date is required." : null,
     proposedRent <= 0 ? "Monthly rent is required." : null,
@@ -313,6 +323,26 @@ export default function ApplicationDetailPage() {
       toast.error(error instanceof Error ? error.message : "Failed to update application");
     } finally {
       setRequestingInfo(false);
+    }
+  }
+
+  async function handleMarkUnderReview() {
+    try {
+      await updateApplication({ status: "under_review", decisionNotes });
+      toast.success("Application moved to review");
+      await loadApp();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update application");
+    }
+  }
+
+  async function handleStartScreening() {
+    try {
+      await updateApplication({ status: "screening", decisionNotes });
+      toast.success("Application moved to screening");
+      await loadApp();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update application");
     }
   }
 
@@ -369,7 +399,6 @@ export default function ApplicationDetailPage() {
     setConverting(true);
     setGuardErrors([]);
     try {
-      await updateApplication({ status: "screening", decisionNotes });
       const res = await fetch(`/api/applications/${id}/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -641,6 +670,18 @@ export default function ApplicationDetailPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-xl">
+                <ClipboardCheck className="h-5 w-5" />
+                Workflow
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <WorkflowVerificationPanel app={app} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-xl">
                 <ShieldCheck className="h-5 w-5" />
                 Credit Report
               </CardTitle>
@@ -771,12 +812,29 @@ export default function ApplicationDetailPage() {
                       setGuardErrors(approvalBlockers);
                       setConvertOpen(true);
                     }}
+                    disabled={!canApprove}
                   >
                     <CheckCircle className="h-4 w-4" />
                     Approve and create lease
                   </Button>
                   <Button variant="outline" className="w-full" onClick={handleRequestMoreInfo} disabled={requestingInfo}>
                     {requestingInfo ? "Updating..." : "Request more information"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleMarkUnderReview}
+                    disabled={app.status !== "documents_requested"}
+                  >
+                    Move to under review
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleStartScreening}
+                    disabled={app.status !== "under_review"}
+                  >
+                    Move to screening
                   </Button>
                   <Button
                     variant="outline"

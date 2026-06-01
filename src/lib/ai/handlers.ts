@@ -3,6 +3,7 @@ import { addDays } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
 import { leaseMonthlyDueForPeriod } from "@/lib/monthly-charges";
+import { applicationRequirements, validateApplicationStatusTransition, type ApplicationStatus } from "@/lib/application-workflow";
 
 type ToolInput = Record<string, unknown>;
 
@@ -941,8 +942,10 @@ export async function handleTool(
     case "advance_application_status": {
       const appId = input.applicationId as string;
       const newStatus = input.status as string;
-      const app = await prisma.application.findFirst({ where: { id: appId, organizationId } });
+      const app = await prisma.application.findFirst({ where: { id: appId, organizationId }, include: { documents: true } });
       if (!app) return "Application not found.";
+      const validation = validateApplicationStatusTransition(app, newStatus as ApplicationStatus);
+      if (!validation.ok) return `Cannot update application status: ${validation.blockers.join(" ")}`;
       await prisma.application.update({ where: { id: appId }, data: { status: newStatus } });
       await prisma.activityEvent.create({
         data: { organizationId, actorId: userId, entityType: "application", entityId: appId, eventType: "status_changed", metadata: { from: app.status, to: newStatus, actor: "ai_assistant" } },
@@ -962,6 +965,9 @@ export async function handleTool(
           backgroundCheckDate: input.backgroundCheckDate ? new Date(input.backgroundCheckDate as string) : undefined,
         },
       });
+      await prisma.activityEvent.create({
+        data: { organizationId, actorId: userId, entityType: "application", entityId: appId, eventType: "updated", metadata: { field: "backgroundCheckStatus", from: app.backgroundCheckStatus, to: String(input.backgroundCheckStatus), actor: "ai_assistant" } },
+      });
       return `Screening status set to "${input.backgroundCheckStatus}" for ${app.firstName} ${app.lastName}.`;
     }
 
@@ -972,19 +978,86 @@ export async function handleTool(
       await prisma.applicationDocument.create({
         data: { applicationId: appId, name: input.name as string, url: input.url as string, docType: input.docType as string },
       });
+      await prisma.activityEvent.create({
+        data: { organizationId, actorId: userId, entityType: "application", entityId: appId, eventType: "updated", metadata: { action: "document_added", docType: String(input.docType), name: String(input.name), actor: "ai_assistant" } },
+      });
       return `Document "${input.name}" (${input.docType}) added to ${app.firstName} ${app.lastName}'s application.`;
+    }
+
+    case "approve_application_and_create_lease": {
+      const appId = input.applicationId as string;
+      const application = await prisma.application.findFirst({
+        where: { id: appId, organizationId },
+        include: { documents: true },
+      });
+      if (!application) return "Application not found.";
+      if (application.status === "approved") return "Application is already approved.";
+      if (application.status !== "screening") return "Application must be in screening before approval.";
+      if (!application.unitId) return "Cannot approve: no unit is associated with this application.";
+      const guards = applicationRequirements(application).blockers;
+      if (guards.length) return `Cannot approve: ${guards.join(" ")}`;
+
+      const result = await prisma.$transaction(async (tx) => {
+        const tenant = await tx.tenant.create({
+          data: {
+            organizationId,
+            firstName: application.firstName,
+            lastName: application.lastName,
+            email: application.email,
+            phone: application.phone ?? undefined,
+            dateOfBirth: application.dateOfBirth ?? undefined,
+          },
+        });
+        const lease = await tx.lease.create({
+          data: {
+            organizationId,
+            unitId: application.unitId!,
+            startDate: new Date(input.startDate as string),
+            endDate: input.endDate ? new Date(input.endDate as string) : undefined,
+            rentAmount: input.rentAmount as number,
+            depositAmount: (input.depositAmount as number) ?? undefined,
+            status: "active",
+            tenants: { create: { tenantId: tenant.id, isPrimary: true } },
+          },
+        });
+        await tx.unit.update({ where: { id: application.unitId! }, data: { status: "occupied" } });
+        await tx.application.update({
+          where: { id: appId },
+          data: {
+            status: "approved",
+            convertedTenantId: tenant.id,
+            convertedLeaseId: lease.id,
+            reviewedById: userId,
+            reviewedAt: new Date(),
+          },
+        });
+        await tx.activityEvent.create({
+          data: { organizationId, actorId: userId, entityType: "application", entityId: appId, eventType: "status_changed", metadata: { from: application.status, to: "approved", tenantId: tenant.id, leaseId: lease.id, actor: "ai_assistant" } },
+        });
+        return { tenant, lease };
+      });
+
+      return `Approved ${application.firstName} ${application.lastName}. Tenant ID: ${result.tenant.id}. Lease ID: ${result.lease.id}.`;
     }
 
     case "confirm_move_in": {
       const leaseId = input.leaseId as string;
       const lease = await prisma.lease.findFirst({
         where: { id: leaseId, organizationId },
-        include: { tenants: { include: { tenant: true } } },
+        include: { tenants: { include: { tenant: true } }, convertedFrom: { select: { id: true } } },
       });
       if (!lease) return "Lease not found.";
       if (lease.signingStatus !== "fully_signed") return `Cannot confirm move-in: lease signing status is "${lease.signingStatus}" (must be fully_signed).`;
       if (lease.moveInCompleted) return "Move-in already confirmed for this lease.";
       await prisma.lease.update({ where: { id: leaseId }, data: { moveInCompleted: true, moveInCompletedAt: new Date() } });
+      await prisma.activityEvent.create({
+        data: { organizationId, actorId: userId, entityType: "lease", entityId: leaseId, eventType: "status_changed", metadata: { action: "move_in_confirmed", actor: "ai_assistant" } },
+      });
+      if (lease.convertedFrom) {
+        await prisma.activityEvent.create({
+          data: { organizationId, actorId: userId, entityType: "application", entityId: lease.convertedFrom.id, eventType: "status_changed", metadata: { action: "move_in_confirmed", leaseId, actor: "ai_assistant" } },
+        });
+      }
       const tenant = lease.tenants[0]?.tenant;
       return `Move-in confirmed for ${tenant ? `**${tenant.firstName} ${tenant.lastName}**` : "lease"}.`;
     }

@@ -9,6 +9,15 @@ const schema = z.object({
   month: z.number().int().min(1).max(12),
 });
 
+/** Returns the rent due date for a lease in a given period.
+ *  Uses the lease's paymentDueDay (1–28), clamped to the last day of the month.
+ */
+function rentDueDate(year: number, month: number, paymentDueDay: number): Date {
+  const lastDay = new Date(year, month, 0).getDate(); // last day of the month
+  const day = Math.min(paymentDueDay, lastDay);
+  return new Date(year, month - 1, day);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { organizationId } = await requireOrg();
@@ -20,11 +29,11 @@ export async function POST(req: NextRequest) {
       include: { monthlyCharges: true },
     });
 
-    const dueDate = new Date(year, month - 1, 1);
-
     let created = 0;
     for (const lease of activeLeases) {
       const amountDue = leaseMonthlyDueForPeriod(lease.rentAmount, lease.monthlyCharges, year, month);
+      // Use the lease's actual payment due day, not always the 1st
+      const dueDate = rentDueDate(year, month, lease.paymentDueDay ?? 1);
       await prisma.rentPayment.upsert({
         where: { leaseId_periodYear_periodMonth: { leaseId: lease.id, periodYear: year, periodMonth: month } },
         update: {},

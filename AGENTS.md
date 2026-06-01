@@ -32,8 +32,8 @@ This version has breaking changes. APIs, conventions, and file structure may all
 
 ## Dashboard Balance
 
-- Outstanding tenant balances should use the shared rent-ledger helper so the dashboard, tenant card, dashboard API, and portfolio analyzer agree.
-- Imported ledgers may include authoritative running balances in transaction descriptions. Do not regress this pipeline back to raw rent-payment summing only.
+- Outstanding tenant balances must use `calculateLeaseOutstandingBalance` from `src/lib/rent-ledger.ts` so the dashboard, tenant card, dashboard API, and portfolio analyzer all agree.
+- Balance is always pure math: `sum(amountDue - amountPaid)` across RentPayments + `sum(income) - sum(expense)` across Transactions. Do NOT read embedded `(balance: $X)` strings from AI-imported transaction descriptions — those strings are frozen at import time and become wrong after any data correction. `calculateLeaseOutstandingBalance` intentionally delegates to `calculateLeaseBalance` (pure math) and does not use `getLatestImportedRunningBalance`.
 
 ## Applications And Lease Workflow
 

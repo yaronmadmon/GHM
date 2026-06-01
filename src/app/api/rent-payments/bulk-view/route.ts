@@ -30,12 +30,40 @@ export async function GET(req: NextRequest) {
         rentPayments: lease.rentPayments,
         transactions: lease.transactions,
       });
+
+      // Build per-charge breakdown for this period
+      const activeCharges = lease.monthlyCharges
+        .filter((c) => {
+          if (!c.isActive) return false;
+          const ps = new Date(year, month - 1, 1);
+          const pe = new Date(year, month, 0, 23, 59, 59);
+          if (c.startDate && new Date(c.startDate) > pe) return false;
+          if (c.endDate && new Date(c.endDate) < ps) return false;
+          return true;
+        })
+        .map((c) => ({ name: c.name, category: c.category, amount: Number(c.amount) }));
+
+      // Compute the actual due date and late fee trigger date for this lease+period
+      const lastDay = new Date(year, month, 0).getDate();
+      const dueDay = Math.min(lease.paymentDueDay ?? 1, lastDay);
+      const dueDateForPeriod = new Date(year, month - 1, dueDay);
+      const graceDays = lease.lateFeGraceDays ?? 5;
+      const lateFeeTriggerDate =
+        lease.lateFeeAmount && Number(lease.lateFeeAmount) > 0
+          ? new Date(dueDateForPeriod.getTime() + graceDays * 86_400_000)
+          : null;
+
       return {
         leaseId: lease.id,
         unit: lease.unit,
         tenants: lease.tenants.map((lt) => lt.tenant),
         rentAmount: lease.rentAmount,
         monthlyDue: leaseMonthlyDueForPeriod(lease.rentAmount, lease.monthlyCharges, year, month),
+        chargeBreakdown: activeCharges,
+        lateFeeAmount: lease.lateFeeAmount ? Number(lease.lateFeeAmount) : null,
+        lateFeGraceDays: graceDays,
+        lateFeeTriggerDate: lateFeeTriggerDate?.toISOString() ?? null,
+        dueDateForPeriod: dueDateForPeriod.toISOString(),
         payment,
         status: payment?.status ?? "not_generated",
         balance,

@@ -5,18 +5,26 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
+  AlertCircle,
   ArrowUpDown,
+  Bot,
   Building2,
   CalendarDays,
+  CheckSquare,
+  ClipboardCheck,
   ClipboardList,
+  Coffee,
   DollarSign,
   DoorOpen,
   FileText,
+  FolderOpen,
+  Hammer,
   HardHat,
   LayoutDashboard,
   LogOut,
   Menu,
   MessageSquare,
+  Receipt,
   RefreshCw,
   Settings,
   Users,
@@ -29,22 +37,62 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const allNav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/properties", label: "Properties", icon: Building2 },
-  { href: "/tenants", label: "Tenants", icon: Users },
-  { href: "/vacancy", label: "Vacancy", icon: DoorOpen },
-  { href: "/applications", label: "Applications", icon: ClipboardList },
-  { href: "/leases", label: "Leases", icon: FileText },
-  { href: "/renewals", label: "Renewals", icon: RefreshCw },
-  { href: "/rent", label: "Rent", icon: DollarSign },
-  { href: "/maintenance", label: "Maintenance", icon: Wrench },
-  { href: "/vendors", label: "Vendors", icon: HardHat },
-  { href: "/messages", label: "Messages", icon: MessageSquare },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/financials", label: "Financials", icon: ArrowUpDown },
-  { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
-  { href: "/settings", label: "Settings", icon: Settings },
+interface NavItem { href: string; label: string; icon: React.ElementType }
+interface NavSection { label?: string; items: NavItem[] }
+
+const navSections: NavSection[] = [
+  {
+    items: [
+      { href: "/todays-office", label: "Today's Office", icon: Coffee },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/properties", label: "Properties", icon: Building2 },
+      { href: "/tenants", label: "Tenants", icon: Users },
+    ],
+  },
+  {
+    label: "Leasing",
+    items: [
+      { href: "/vacancy", label: "Vacancy", icon: DoorOpen },
+      { href: "/applications", label: "Applications", icon: ClipboardList },
+      { href: "/leases", label: "Leases", icon: FileText },
+      { href: "/renewals", label: "Renewals", icon: RefreshCw },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/rent", label: "Rent", icon: DollarSign },
+      { href: "/maintenance", label: "Maintenance", icon: Wrench },
+      { href: "/work-orders", label: "Work Orders", icon: Hammer },
+      { href: "/inspections", label: "Inspections", icon: ClipboardCheck },
+      { href: "/vendors", label: "Vendors", icon: HardHat },
+      { href: "/messages", label: "Messages", icon: MessageSquare },
+      { href: "/calendar", label: "Calendar", icon: CalendarDays },
+      { href: "/tasks", label: "Tasks", icon: CheckSquare },
+    ],
+  },
+  {
+    label: "Finance",
+    items: [
+      { href: "/financials", label: "Financials", icon: ArrowUpDown },
+      { href: "/bills", label: "Bills", icon: Receipt },
+      { href: "/documents", label: "Documents", icon: FolderOpen },
+      { href: "/missing-documents", label: "Missing Docs", icon: AlertCircle },
+      { href: "/import-export", label: "Import / Export", icon: ArrowUpDown },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { href: "/agent", label: "Agent Ops", icon: Bot },
+      { href: "/portfolio-analyzer", label: "Portfolio Analyzer", icon: Bot },
+    ],
+  },
+  {
+    items: [
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
 export function MobileTopBar() {
@@ -104,29 +152,40 @@ export function MobileTopBar() {
               </Button>
             </div>
 
-            <nav className="flex-1 overflow-y-auto py-3">
-              <ul className="space-y-1 px-3">
-                {allNav.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        onClick={() => setOpen(false)}
-                        className={cn(
-                          "flex items-center gap-3 rounded-md border-l-2 px-3 py-3 text-[0.95rem] font-medium transition-colors",
-                          isActive
-                            ? "border-primary bg-muted text-foreground"
-                            : "border-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                        )}
-                      >
-                        <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-primary")} />
-                        {item.label}
-                      </Link>
-                    </li>
-                  );
-                })}
+            <nav className="flex-1 overflow-y-auto py-2">
+              <ul className="space-y-0.5 px-3">
+                {navSections.map((section, si) => (
+                  <li key={si}>
+                    {section.label && (
+                      <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60 select-none">
+                        {section.label}
+                      </p>
+                    )}
+                    <ul className="space-y-0.5">
+                      {section.items.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                        return (
+                          <li key={item.href}>
+                            <Link
+                              href={item.href}
+                              onClick={() => setOpen(false)}
+                              className={cn(
+                                "flex items-center gap-3 rounded-md border-l-2 px-3 py-2.5 text-[0.95rem] font-medium transition-colors",
+                                isActive
+                                  ? "border-primary bg-muted text-foreground"
+                                  : "border-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                              )}
+                            >
+                              <Icon className={cn("h-5 w-5 shrink-0", isActive && "text-primary")} />
+                              {item.label}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
               </ul>
             </nav>
 

@@ -20,12 +20,19 @@ const STATUS_STYLES: Record<string, string> = {
   not_generated: "bg-muted/50 text-muted-foreground/60",
 };
 
+interface ChargeBreakdown { name: string; category: string; amount: number; }
+
 interface BulkItem {
   leaseId: string;
   unit: { id: string; unitNumber: string; property: { id: string; name: string } };
   tenants: { id: string; firstName: string; lastName: string }[];
   rentAmount: string;
   monthlyDue: number;
+  chargeBreakdown?: ChargeBreakdown[];
+  lateFeeAmount?: number | null;
+  lateFeGraceDays?: number | null;
+  lateFeeTriggerDate?: string | null;
+  dueDateForPeriod?: string | null;
   payment: { id: string; amountPaid: string; amountDue: string; status: string } | null;
   status: string;
   balance: number;
@@ -193,16 +200,28 @@ export default function RentPage() {
                     Record
                   </Button>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Badge className={`border text-xs ${STATUS_STYLES[item.status] ?? ""}`}>
-                    {item.status.replace("_", " ")}
-                  </Badge>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {item.payment ? `${formatCurrency(parseFloat(String(item.payment.amountPaid)))} / ` : ""}
-                    {formatCurrency(Number(item.monthlyDue ?? item.rentAmount))}
-                  </span>
+                <div className="mt-3 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={`border text-xs ${STATUS_STYLES[item.status] ?? ""}`}>
+                      {item.status.replace("_", " ")}
+                    </Badge>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {item.payment ? `${formatCurrency(parseFloat(String(item.payment.amountPaid)))} / ` : ""}
+                      {formatCurrency(Number(item.monthlyDue ?? item.rentAmount))}
+                    </span>
+                  </div>
+                  {/* Charge breakdown */}
+                  <div className="space-y-0.5 text-xs text-muted-foreground">
+                    <span>Rent: {formatCurrency(Number(item.rentAmount))}</span>
+                    {item.chargeBreakdown?.map((c) => (
+                      <span key={c.name} className="ml-2 text-blue-700 dark:text-blue-400">· {c.name}: +{formatCurrency(c.amount)}</span>
+                    ))}
+                    {item.lateFeeAmount && item.lateFeeAmount > 0 && (
+                      <span className="ml-2 text-amber-600 dark:text-amber-400">· Late fee: {formatCurrency(item.lateFeeAmount)} (after {item.lateFeGraceDays ?? 5}d)</span>
+                    )}
+                  </div>
                 </div>
-                <p className={`mt-2 font-mono text-xs ${item.balance > 0 ? "text-red-700 dark:text-red-300" : "text-muted-foreground"}`}>
+                <p className={`mt-1 font-mono text-xs ${item.balance > 0 ? "text-red-700 dark:text-red-300" : "text-muted-foreground"}`}>
                   Ledger balance: {formatCurrency(item.balance)}
                 </p>
               </article>
@@ -215,9 +234,10 @@ export default function RentPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tenant</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Unit</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Charges</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">Due</th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">Paid</th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Ledger balance</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Balance</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -237,7 +257,30 @@ export default function RentPage() {
                         {item.unit.property.name} - Unit {item.unit.unitNumber}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(Number(item.monthlyDue ?? item.rentAmount))}</td>
+                    <td className="px-4 py-3">
+                      <div className="space-y-0.5 text-xs text-muted-foreground">
+                        {item.dueDateForPeriod && (
+                          <div className="font-medium text-foreground/70">
+                            Due: {new Date(item.dueDateForPeriod).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </div>
+                        )}
+                        <div>Rent: <span className="font-mono">{formatCurrency(Number(item.rentAmount))}</span></div>
+                        {item.chargeBreakdown?.map((c) => (
+                          <div key={c.name} className="text-blue-700 dark:text-blue-400">
+                            {c.name}: <span className="font-mono">+{formatCurrency(c.amount)}</span>
+                          </div>
+                        ))}
+                        {item.lateFeeAmount && item.lateFeeAmount > 0 && (
+                          <div className={`${item.status === "overdue" || item.status === "pending" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+                            Late fee {formatCurrency(item.lateFeeAmount)} if unpaid by{" "}
+                            {item.lateFeeTriggerDate
+                              ? new Date(item.lateFeeTriggerDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                              : `day ${item.lateFeGraceDays ?? 5}`}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-semibold">{formatCurrency(Number(item.monthlyDue ?? item.rentAmount))}</td>
                     <td className="px-4 py-3 text-right font-mono">
                       {item.payment ? formatCurrency(parseFloat(String(item.payment.amountPaid))) : "-"}
                     </td>
@@ -268,9 +311,22 @@ export default function RentPage() {
           </DialogHeader>
           {recordDialog && (
             <form onSubmit={handleRecord} className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                {recordDialog.tenants[0]?.firstName} {recordDialog.tenants[0]?.lastName} - {monthName}
-              </p>
+              <div>
+                <p className="text-sm font-medium">
+                  {recordDialog.tenants[0]?.firstName} {recordDialog.tenants[0]?.lastName} — {monthName}
+                </p>
+                <div className="mt-1.5 space-y-0.5 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                  <div className="flex justify-between"><span>Rent</span><span className="font-mono">{formatCurrency(Number(recordDialog.rentAmount))}</span></div>
+                  {recordDialog.chargeBreakdown?.map((c) => (
+                    <div key={c.name} className="flex justify-between text-blue-700 dark:text-blue-400">
+                      <span>{c.name}</span><span className="font-mono">+{formatCurrency(c.amount)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between border-t pt-1 font-medium text-foreground">
+                    <span>Total due</span><span className="font-mono">{formatCurrency(Number(recordDialog.monthlyDue ?? recordDialog.rentAmount))}</span>
+                  </div>
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label>Amount</Label>
                 <Input name="amount" type="number" step="0.01" defaultValue={String(recordDialog.monthlyDue ?? recordDialog.rentAmount)} required />

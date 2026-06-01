@@ -20,7 +20,7 @@ interface Application {
   email: string | null;
   phone: string | null;
   employerName: string | null;
-  monthlyIncome: number | null;
+  monthlyIncome: number | string | null;
   backgroundCheckStatus: string | null;
   backgroundCheckDate: string | null;
   createdAt: string;

@@ -100,6 +100,14 @@ export default function NewTransactionPage() {
               </Select>
             </div>
 
+            {form.type === "income" && form.category === "rent" && (
+              <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-700 dark:text-yellow-400">
+                Rent payments recorded via the <strong>Rent</strong> section are already tracked in
+                the tenant ledger. Adding a &ldquo;rent&rdquo; income transaction for the same
+                period may cause double-counting in tenant balances.
+              </div>
+            )}
+
             {/* Amount + Date */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

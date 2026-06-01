@@ -29,7 +29,7 @@ No test suite exists.
 | Styling | Tailwind CSS v4 (no `tailwind.config.js` — config lives in CSS variables) |
 | UI Components | shadcn/ui → `src/components/ui/` |
 | Email | Resend (`src/lib/email.ts`) — **initialize `new Resend()` lazily inside handler functions, never at module top-level** |
-| AI | OpenAI SDK — gpt-4o for chat widget (streaming, 24 tools) and smart import (vision + text) |
+| AI | OpenAI SDK — gpt-4o for chat widget (streaming, 30 tools) and smart import (vision + text) |
 | Toasts | Sonner — `import { toast } from "sonner"` |
 | File upload | base64 data URIs stored in PostgreSQL (fallback); auto-upgrades to Vercel Blob when `BLOB_READ_WRITE_TOKEN` env var is present |
 | Forms | react-hook-form + zod |
@@ -46,13 +46,22 @@ No test suite exists.
 ```
 DATABASE_URL=           # Neon PostgreSQL connection string
 NEXTAUTH_SECRET=
-NEXTAUTH_URL=           # e.g. http://localhost:3000
-OPENAI_API_KEY=         # Used for AI chat widget and smart import extraction
+NEXTAUTH_URL=           # http://localhost:3000 (dev) | https://ghm-tawny.vercel.app (prod)
+OPENAI_API_KEY=         # Used for AI chat, maintenance triage, notices, message draft, smart import
 RESEND_API_KEY=
 EMAIL_FROM=             # e.g. GHM <noreply@yourdomain.com>
-UPLOADTHING_SECRET=
-UPLOADTHING_APP_ID=
+CRON_SECRET=            # Bearer token for /api/cron/* routes
+MORA_SERVICE_API_KEY=   # x-mora-key header for /api/mora/* routes
+MORA_SERVICE_ORG_ID=    # org to scope Mora queries to
 ```
+
+## Cron Schedule (`vercel.json`)
+| Route | Schedule | Purpose |
+|---|---|---|
+| `/api/cron/generate-monthly-rent` | `0 6 1 * *` | 6am on the 1st — create RentPayments for all active leases |
+| `/api/cron/mark-overdue-payments` | `0 9 * * *` | 9am daily — mark overdue, apply per-lease late fees |
+| `/api/cron/check-expiring-leases` | `0 8 * * *` | 8am daily — notify landlords of leases expiring ≤60 days |
+| `/api/cron/portfolio-agent` | `0 12 * * *` | 12pm daily — run AI Office Manager analysis |
 
 ## Project Structure
 
@@ -61,22 +70,37 @@ src/
   app/
     (app)/                    # Landlord/staff app — requires NextAuth session
       layout.tsx              # Auth guard, AppShell, ChatWidget
+      todays-office/          # Daily command center — 9 live sections (balances, bills, tasks, maintenance, messages, etc.)
       dashboard/              # KPI cards, overdue rent, expiring leases, activity feed
                               # Shows migration CTA when properties.total === 0
-      properties/             # Property list; [id]/ detail + photo gallery
+      properties/             # Property list with health score badges; [id]/ detail + activity timeline
         [id]/units/new/       # Add unit to property
+        [id]/report/          # Income/expense report, print-optimized
         new/                  # Create property
-      tenants/                # Tenant list; [id]/ detail; new/; [id]/ledger/ print-optimized full ledger
-      leases/                 # Lease list; [id]/ detail; new/
-      rent/                   # Rent ledger — record payments, view history
-      maintenance/            # Request list; [id]/ detail with comments
+      tenants/                # Tenant list with doc count badges; [id]/ detail; new/
+        [id]/ledger/          # Print-optimized full ledger with email send
+        [id]/court-packet/    # 7-section print-ready court packet PDF
+      leases/                 # Lease list; [id]/ detail with activity timeline; new/
+      rent/                   # Rent ledger — per-lease charge breakdown, record payments
+                              # Due date uses lease.paymentDueDay; late fee trigger shown per row
+      maintenance/            # Request list; [id]/ detail with AI Triage button + comments
+      work-orders/            # Work order list — 8-status flow (new→invoiced), auto-expense on completion
+      inspections/            # Inspection scheduling — move-in/out/annual/maintenance types
       vendors/                # Vendor/contractor list — full CRUD
-      messages/               # Landlord ↔ tenant threaded messaging
+      messages/               # Landlord ↔ tenant messaging with AI Draft Reply + Summarize
       applications/           # Rental applications; [id]/ workflow
       financials/             # Income/expense transactions
-        new-transaction/      # Transaction creation form
+        new-transaction/      # Transaction creation form (rent double-counting warning)
+      bills/                  # Bills & payables — status flow, mark-paid creates expense TX
+      tasks/                  # Task list with priority, due date, status filters
+      calendar/               # Grid + agenda — rent due, lease expiry, tasks, bills, maintenance
+      missing-documents/      # Global view of tenants with missing required docs
+      documents/              # Document Center — upload, AI classify, review, file
       import-export/          # Export (Excel/CSV) + Smart Import tab (links to /migration)
       migration/              # AI migration center — card review flow (upload → review → done)
+      renewals/               # Lease renewal list; [id]/ form — sends new lease for e-sign
+      vacancy/                # Vacant units board
+      agent/                  # AI Office Manager — run history, pending task approval
       settings/               # Profile, password, late fee config
     (auth)/                   # Unauthenticated — login, register
     portal/                   # Tenant self-service portal (cookie auth, separate from NextAuth)
@@ -110,7 +134,7 @@ src/
       import/                 # Manual CSV column-mapping import (parse + commit actions)
       import/smart/           # AI import: extract | check-conflicts | commit actions
       export/                 # Excel + multi-CSV export
-      ai/chat/                # AI chat widget (gpt-4o, streaming, 24 tools)
+      ai/chat/                # AI chat widget (gpt-4o, streaming, 30 tools)
       ai/tts/                 # POST text → OpenAI TTS audio/mpeg (nova voice)
       portal/                 # Portal-scoped endpoints (all use requirePortalSession cookie auth)
         auth/[token]/         # Validate magic token → set session cookie
@@ -126,12 +150,36 @@ src/
       apply/[token]/upload/   # Public file upload for applicants (base64 fallback, upgrades to Vercel Blob)
       tenants/[id]/ledger/send/ # Email ledger PDF to attorney/social worker via Resend
       lease-sign/[token]/     # Process e-signature submission
+      leases/
+        [id]/move-out/          # POST — record move-out, mark unit vacant, create Task + ActivityEvent
+        [id]/renew/             # POST — create new pending lease, send for e-sign
+        [id]/non-renewal/       # POST — send non-renewal notice
       cron/
-        check-expiring-leases/  # Notify landlords of leases expiring within 60 days
-        mark-overdue-payments/  # Mark unpaid past-due payments as overdue
+        generate-monthly-rent/  # POST (cron 6am on 1st) — creates RentPayment for all active leases
+                                # Uses lease.paymentDueDay for due date (not always the 1st)
+        check-expiring-leases/  # POST (cron 8am daily) — notify landlords of leases expiring ≤60 days
+        mark-overdue-payments/  # POST (cron 9am daily) — mark pending past-due payments overdue
+                                # Also auto-applies late fees per-lease: only if lateFeeAmount>0,
+                                # grace period passed, no existing late_fee TX for that period
+        portfolio-agent/        # POST (cron 12pm daily) — run AI Office Manager
+      bills/                  # GET list; POST create
+        [id]/                 # PATCH (approve/mark-paid with atomic expense TX); DELETE
+      tasks/                  # GET list; POST create
+        [id]/                 # PATCH (status/details); DELETE
+      work-orders/            # GET list; POST create
+        [id]/                 # PATCH (advance status, auto-expense on completed); DELETE
+      inspections/            # GET list; POST schedule
+        [id]/                 # PATCH (start/complete/cancel); DELETE
+      tenant-charges/         # POST create (wraps Transaction: income for charges, expense for credits)
+                              # 11 types: late_fee, repair_chargeback, nsf_fee, etc.
+      notices/draft/          # POST — GPT-4o drafts notice text using tenant+lease context
+      notices/log/            # POST — saves approved notice to ActivityEvent metadata
+      ai/message-draft/       # POST — GPT-4o reply draft or thread summarize
+      maintenance/
+        [id]/triage/          # POST — GPT-4o classifies, suggests vendor, drafts tenant response, posts as comment
       payment-requests/       # Landlord confirms/rejects tenant payment requests
       dashboard/              # Aggregate dashboard data
-      activity/               # Activity event feed
+      activity/               # Activity event feed (entityType + entityId filters)
       settings/profile/       # Update name/email
       settings/password/      # Change password
       settings/late-fees/     # Update LateFeeConfig
@@ -150,8 +198,20 @@ src/
                               # Types: message | payment_due | maintenance_update | lease_expiry | new_application
     utils.ts                  # cn, formatCurrency, formatDate, formatRelativeTime,
                               # daysUntil, getInitials
-    ai/handlers.ts            # AI chat tool implementations (24 tools, all Prisma)
+    property-health.ts        # computePropertyHealth(input) → { level, score, reasons }
+                              # Levels: healthy | needs_attention | high_risk
+                              # Factors: vacancy rate, overdue rent, emergency maintenance, expiring leases
+    monthly-charges.ts        # leaseMonthlyDueForPeriod() — rent + active LeaseMonthlyCharge sum
+                              # isMonthlyChargeActiveForPeriod() — date-range check
+    document-parser.ts        # OpenAI gpt-4o vision → ParsedDocument (classification + extraction)
+                              # Used by /api/documents for Document Center AI classification
+    service-auth.ts           # verifyMoraServiceKey(), moraServiceGuard() — Mora API key validation
+    ai/handlers.ts            # AI chat tool implementations (30 tools, all Prisma)
     ai/tools.ts               # AI chat tool definitions (OpenAI function-calling format)
+    agent/portfolio-agent.ts  # runPortfolioAgent() — GPT-4o daily portfolio analysis
+                              # gatherPortfolioState() — collects real DB data for context
+                              # approveAndExecuteTask() — handles approved AgentTask execution
+                              # Risk tiers: AUTO_RUN (immediate) | AUTO_DRAFT (queued) | STRICT_BLOCK (data only)
   contexts/
     MigrationContext.tsx      # Upload → extract → conflict check state (wraps entire app shell via AppShell)
   components/
@@ -165,7 +225,7 @@ src/
                               # Drawer includes ThemeToggle + sign-out
       NotificationBell.tsx    # Bell icon + dropdown; side="right" (sidebar) | "bottom" (mobile)
       BottomNav.tsx           # Mobile bottom tab bar (5 key tabs)
-    ai/ChatWidget.tsx         # Floating AI assistant — gpt-4o, 24 tools, voice in/out
+    ai/ChatWidget.tsx         # Floating AI assistant — gpt-4o, 30 tools, voice in/out
                               # STT: Web Speech API (SpeechRecognition) — mic input only
                               # TTS: OpenAI nova voice via /api/ai/tts — NOT Web Speech API
     applications/             # DocumentsSection, InviteButton, ScreeningSection,
@@ -202,14 +262,14 @@ All API routes return `Response.json(...)`. Errors return `{ error: string }` wi
 
 `src/components/ai/ChatWidget.tsx` — floating assistant, bottom-right corner.
 - **Model**: gpt-4o via `/api/ai/chat` (route has `export const maxDuration = 60` for Vercel timeout)
-- **Tools**: 24 tools defined in `src/lib/ai/tools.ts` (OpenAI function-calling format)
+- **Tools**: 30 tools defined in `src/lib/ai/tools.ts` (OpenAI function-calling format)
 - **Voice input**: Web Speech API (`SpeechRecognition`) — auto-sends on recognition end
 - **Voice output**: OpenAI TTS (`nova` voice) via `POST /api/ai/tts` → returns `audio/mpeg` → played via `new Audio(url)`. Do NOT use `window.speechSynthesis` for the assistant voice.
 - **Tool loop**: `finish_reason === "tool_calls"` → call handlers → send `role: "tool"` results → repeat
 - **Conversational behavior**: The system prompt instructs the AI to ask for one piece of information at a time when collecting details for a task (adding a property, creating a tenant, etc.). Never list all required fields upfront.
 - **Rule**: Any new workflow action must also get a corresponding tool in `tools.ts` + handler in `handlers.ts`
 
-`src/lib/ai/handlers.ts` — implements all 24 tools with direct Prisma calls. Signature: `handleTool(name, input, organizationId, userId)`.
+`src/lib/ai/handlers.ts` — implements all 30 tools with direct Prisma calls. Signature: `handleTool(name, input, organizationId, userId)`.
 
 ## Smart Import / Migration Center
 
@@ -273,6 +333,26 @@ Currently triggered by:
 
 `NotificationBell` polls every 60 s. `side="right"` for sidebar (opens rightward), `side="bottom"` for mobile top bar (opens downward).
 
+## Mora Service Layer
+
+Machine-to-machine API for external integrations (e.g. the Mora service). **Do not remove, duplicate, or expose to the tenant portal.**
+
+| Route | Method | Description |
+|---|---|---|
+| `/api/mora/health` | GET | Counts properties, active leases, open maintenance, overdue payments |
+| `/api/mora/properties` | GET | Lists all non-archived properties with unit/vacancy summary |
+| `/api/mora/leases` | GET | Lists leases; supports `?status=` and `?expiringWithinDays=` filters |
+| `/api/mora/maintenance` | GET | Lists maintenance requests; supports `?status=open,in_progress` |
+| `/api/mora/rent-payments` | GET | Lists rent payments; supports `?status=overdue` |
+
+**Auth:** Every route calls `moraServiceGuard(request)` from `src/lib/service-auth.ts`, which checks the `x-mora-key` header against `MORA_SERVICE_API_KEY` (timing-safe compare).
+
+**Org scope:** All queries are scoped to `MORA_SERVICE_ORG_ID` env var.
+
+**Middleware:** `/api/mora` is in `isPublicApiRoute` in `src/proxy.ts` — bypasses NextAuth so the external service can authenticate with its own key.
+
+**Env vars required:** `MORA_SERVICE_API_KEY`, `MORA_SERVICE_ORG_ID`
+
 ## Email (`src/lib/email.ts`)
 
 Requires `RESEND_API_KEY`. Gracefully no-ops if key is missing (throws with clear message).
@@ -286,15 +366,42 @@ Requires `RESEND_API_KEY`. Gracefully no-ops if key is missing (throws with clea
 | `sendNewApplicationAlert` | Applicant submits application → all org users notified |
 | `sendLedgerReport` | Ledger emailed to attorney/social worker/court |
 
+## Rent & Late Fee Logic
+
+**Generating monthly rent (`/api/rent-payments/generate-month` + cron):**
+- Due date = `lease.paymentDueDay` (1–28) for the given month — NOT always the 1st
+- `amountDue` = base rent + all active `LeaseMonthlyCharge` items for that period
+- Cron runs at **6am on the 1st** of each month via `vercel.json`
+
+**Late fee auto-application (`/api/cron/mark-overdue-payments`, runs 9am daily):**
+- Marks `status: "pending"` payments with `dueDate < now` as `"overdue"`
+- Then per-lease: if `lease.lateFeeAmount > 0` AND `daysOverdue >= lease.lateFeGraceDays` AND no existing `late_fee` Transaction for that period → creates income Transaction
+- **This is per-lease, not global** — tenants without a `lateFeeAmount` on their lease are never charged
+
+**Recurring charges (utilities, pet fee, parking, etc.):**
+- Set up per-lease via `LeaseMonthlyCharge` (MonthlyChargesManager on tenant/lease detail)
+- Already factored into `amountDue` at generation time
+- Displayed as line items on the rent page charge breakdown column
+
 ## Data Model — Key Fields
 
-**`Lease`** — `status`: `active | expired | terminated | pending`. `signingStatus`: `draft | sent | tenant_signed | fully_signed`. `paymentDueDay` (1–28, default 1). Has deposit fields: `depositAmount`, `depositPaid`, `depositPaidAt`.
+**`Lease`** — `status`: `active | expired | terminated | pending`. `signingStatus`: `draft | sent | tenant_signed | fully_signed`. `paymentDueDay` (1–28, default 1). `lateFeeAmount`, `lateFeGraceDays`. Move-out: `moveOutDate`, `moveOutNoticedAt`, `depositReturnAmount`, `depositReturnedAt`.
 
 **`RentPayment`** — unique on `(leaseId, periodYear, periodMonth)`. `status`: `pending | partial | paid | overdue`. Use `upsert` when importing.
+
+**`Task`** — `status`: `open | in_progress | waiting | done | cancelled`. `priority`: `low | medium | high | urgent`. `dueDate`, `tenantId`, `leaseId`, `maintenanceId`, etc. `createdByAI` flag.
+
+**`Bill`** — `status`: `needs_review | approved | paid | overdue | rejected`. Mark-paid atomically creates expense `Transaction`. `transactionId` stored to prevent double-charging.
+
+**`WorkOrder`** — `status`: `new | assigned | waiting_estimate | approved | in_progress | completed | invoiced | cancelled`. Auto-creates expense Transaction on `completed` if `actualCost` and `propertyId` set.
+
+**`Inspection`** — `inspectionType`: `move_in | move_out | annual | maintenance`. `status`: `scheduled | in_progress | completed | cancelled`. `overallCondition`: `excellent | good | fair | poor`. `checklist` (JSON).
 
 **`Application`** — `status`: `pending | documents_requested | under_review | screening | approved | denied`. `convertedTenantId` + `convertedLeaseId` set on approval.
 
 **`MaintenanceRequest`** — `status`: `open | in_progress | pending_parts | completed | cancelled`. `priority`: `low | medium | high | emergency`.
+
+**`AgentRun` / `AgentTask`** — AI Office Manager output. `riskTier`: `AUTO_RUN | AUTO_DRAFT | STRICT_BLOCK`. Task `status`: `pending | approved | rejected | executed | failed | auto_executed | blocked`.
 
 **`Notification`** — `userId` is a landlord User ID (not tenant). `type`: `message | payment_due | maintenance_update | lease_expiry | new_application`.
 

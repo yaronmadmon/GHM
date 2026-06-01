@@ -2,6 +2,7 @@ import { requireOrg } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
+import { estimatePropertyExpenses } from "@/lib/expense-estimator";
 import OpenAI from "openai";
 
 export const maxDuration = 60;
@@ -717,6 +718,102 @@ async function generateChatAnswer(
 }
 
 
+export interface PropertyAnalysis {
+  propertyId: string;
+  healthScore: number;
+  priority: "good" | "attention" | "critical";
+  issues: string[];
+  opportunities: string[];
+  summary: string;
+}
+
+function fallbackPropertyAnalyses(snapshot: PortfolioSnapshot): PropertyAnalysis[] {
+  return (snapshot.propertyDetails ?? []).map((property) => {
+    let score = 100;
+    if (property.occupancyRate < 100) score -= Math.round((100 - property.occupancyRate) * 0.4);
+    if (property.overdueTenantCount > 0) score -= property.overdueTenantCount * 10;
+    if (property.openMaintenanceCount > 2) score -= (property.openMaintenanceCount - 2) * 5;
+    score = Math.max(0, Math.min(100, score));
+
+    const issues: string[] = [];
+    const opportunities: string[] = [];
+    if (property.overdueTenantCount > 0) issues.push(`${property.overdueTenantCount} tenant${property.overdueTenantCount > 1 ? "s" : ""} overdue — ${formatCurrency(property.overdueBalance)} at risk`);
+    if (property.openMaintenanceCount > 0) issues.push(`${property.openMaintenanceCount} open maintenance request${property.openMaintenanceCount > 1 ? "s" : ""}`);
+    if (property.occupancyRate < 100) opportunities.push(`${property.unitCount - property.occupiedUnits} vacant unit${property.unitCount - property.occupiedUnits > 1 ? "s" : ""} — fill to recover rent roll`);
+    if (!property.hasExpenses) opportunities.push("Add expense data to enable cash-flow analysis for this property");
+
+    const noi = property.monthlyExpenses !== null ? property.monthlyRentRoll - property.monthlyExpenses : null;
+    return {
+      propertyId: property.id,
+      healthScore: score,
+      priority: score >= 80 ? "good" : score >= 60 ? "attention" : "critical",
+      issues,
+      opportunities,
+      summary: noi !== null
+        ? `Monthly rent roll ${formatCurrency(property.monthlyRentRoll)}, estimated NOI ${formatCurrency(noi)}.`
+        : `Monthly rent roll ${formatCurrency(property.monthlyRentRoll)}, ${property.occupancyRate}% occupied.`,
+    };
+  });
+}
+
+async function generatePropertyAnalyses(snapshot: PortfolioSnapshot): Promise<PropertyAnalysis[]> {
+  const client = getOpenAIClient();
+  if (!client || !snapshot.propertyDetails?.length) return fallbackPropertyAnalyses(snapshot);
+
+  const propertyData = snapshot.propertyDetails.map((p) => ({
+    propertyId: p.id,
+    name: p.name,
+    address: p.address,
+    unitCount: p.unitCount,
+    occupiedUnits: p.occupiedUnits,
+    occupancyRate: p.occupancyRate,
+    monthlyRentRoll: p.monthlyRentRoll,
+    monthlyExpenses: p.monthlyExpenses,
+    noi: p.monthlyExpenses !== null ? p.monthlyRentRoll - p.monthlyExpenses : null,
+    expenseBreakdown: p.expenseBreakdown,
+    hasExpenses: p.hasExpenses,
+    openMaintenanceCount: p.openMaintenanceCount,
+    overdueTenantCount: p.overdueTenantCount,
+    overdueBalance: p.overdueBalance,
+  }));
+
+  try {
+    const response = await client.chat.completions.create({
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      temperature: 0.1,
+      max_tokens: 1200,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are a property portfolio analyst. Score and summarize each property using ONLY the provided data.",
+            "Do not invent market comps, benchmark rates, legal requirements, or facts not in the data.",
+            "healthScore: 0-100 integer. Deduct for vacancies, overdue tenants, overdue balance, open maintenance. Add for full occupancy and positive NOI.",
+            "priority: 'critical' if score < 60, 'attention' if 60-79, 'good' if >= 80.",
+            "issues: concrete problems with numbers (e.g. '2 overdue tenants — $3,200 at risk'). Empty array if none.",
+            "opportunities: specific action opportunities with numbers. Empty array if none.",
+            "summary: one sentence combining occupancy, NOI if available, and the most important risk or upside.",
+            "Return JSON: { \"properties\": [ { propertyId, healthScore, priority, issues, opportunities, summary } ] }",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: JSON.stringify(propertyData),
+        },
+      ],
+    });
+
+    const content = response.choices[0]?.message.content;
+    if (!content) return fallbackPropertyAnalyses(snapshot);
+    const parsed = JSON.parse(content);
+    const arr: PropertyAnalysis[] = Array.isArray(parsed.properties) ? parsed.properties : [];
+    return arr.length ? arr : fallbackPropertyAnalyses(snapshot);
+  } catch {
+    return fallbackPropertyAnalyses(snapshot);
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { organizationId } = await requireOrg();
@@ -731,8 +828,58 @@ export async function POST(req: Request) {
       return Response.json({ snapshot, answer });
     }
 
-    const analysis = await generateAnalysis(snapshot);
-    return Response.json({ snapshot, analysis });
+    // Estimate expenses for properties that don't have them yet (non-fatal)
+    const propertiesWithoutExpenses = (snapshot.propertyDetails ?? []).filter((p) => !p.hasExpenses);
+    if (propertiesWithoutExpenses.length > 0 && process.env.SERPER_API_KEY) {
+      const estimationResults = await Promise.allSettled(
+        propertiesWithoutExpenses.map((p) =>
+          estimatePropertyExpenses({ addressLine1: p.addressLine1, city: p.city, state: p.state, zip: p.zip ?? "" })
+        )
+      );
+
+      for (let i = 0; i < estimationResults.length; i++) {
+        const result = estimationResults[i];
+        if (result.status !== "fulfilled") continue;
+        const estimated = result.value;
+        const propDetail = propertiesWithoutExpenses[i];
+
+        await prisma.propertyExpenses.upsert({
+          where: { propertyId: propDetail.id },
+          create: { propertyId: propDetail.id, ...estimated, aiEstimatedAt: new Date() },
+          update: { ...estimated, aiEstimatedAt: new Date() },
+        });
+
+        const monthlyTotal = (Object.values(estimated) as (number | null)[]).reduce<number>(
+          (sum, v) => sum + (v ?? 0), 0
+        );
+        const idx = snapshot.propertyDetails!.findIndex((p) => p.id === propDetail.id);
+        if (idx >= 0) {
+          const pd = snapshot.propertyDetails![idx];
+          pd.hasExpenses = true;
+          pd.monthlyExpenses = Math.round(monthlyTotal);
+          pd.expenseBreakdown = {
+            propertyTaxMonthly: estimated.propertyTaxMonthly !== null ? Math.round(estimated.propertyTaxMonthly) : null,
+            waterSewerMonthly: estimated.waterSewerMonthly !== null ? Math.round(estimated.waterSewerMonthly) : null,
+            electricityMonthly: estimated.electricityMonthly !== null ? Math.round(estimated.electricityMonthly) : null,
+            gasMonthly: estimated.gasMonthly !== null ? Math.round(estimated.gasMonthly) : null,
+            insuranceMonthly: estimated.insuranceMonthly !== null ? Math.round(estimated.insuranceMonthly) : null,
+            mortgageMonthly: null,
+            hoaMonthly: null,
+            otherMonthly: null,
+          };
+          pd.missingExpenseCategories = Object.entries(estimated)
+            .filter(([, v]) => v === null)
+            .map(([k]) => k);
+        }
+      }
+    }
+
+    const [analysis, propertyAnalyses] = await Promise.all([
+      generateAnalysis(snapshot),
+      generatePropertyAnalyses(snapshot),
+    ]);
+
+    return Response.json({ snapshot, analysis, propertyAnalyses });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to analyze portfolio";
     const status = message === "Unauthorized" ? 401 : 500;

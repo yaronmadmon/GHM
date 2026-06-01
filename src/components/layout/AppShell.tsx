@@ -9,6 +9,9 @@ interface AppShellProps {
   children: React.ReactNode;
   pendingApplications?: number;
   unreadMessages?: number;
+  openTasks?: number;
+  unpaidBills?: number;
+  missingDocs?: number;
 }
 
 function ProcessingBar() {
@@ -21,7 +24,14 @@ function ProcessingBar() {
   );
 }
 
-export function AppShell({ children, pendingApplications, unreadMessages }: AppShellProps) {
+export function AppShell({
+  children,
+  pendingApplications,
+  unreadMessages,
+  openTasks,
+  unpaidBills,
+  missingDocs,
+}: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -33,6 +43,9 @@ export function AppShell({ children, pendingApplications, unreadMessages }: AppS
           <Sidebar
             pendingApplications={pendingApplications}
             unreadMessages={unreadMessages}
+            openTasks={openTasks}
+            unpaidBills={unpaidBills}
+            missingDocs={missingDocs}
             collapsed={collapsed}
             onToggle={() => setCollapsed((c) => !c)}
           />
@@ -44,7 +57,7 @@ export function AppShell({ children, pendingApplications, unreadMessages }: AppS
         </main>
 
         {/* Bottom nav: mobile only */}
-        <BottomNav pendingApplications={pendingApplications} />
+        <BottomNav pendingApplications={pendingApplications} unreadMessages={unreadMessages} />
       </div>
     </MigrationProvider>
   );

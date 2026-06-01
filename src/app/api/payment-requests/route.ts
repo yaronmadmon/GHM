@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrg } from "@/lib/session";
+import { createNotifications } from "@/lib/notifications";
 import { z } from "zod";
 
 const createSchema = z.object({
@@ -45,6 +46,20 @@ export async function POST(req: NextRequest) {
         amount: data.amount,
       },
     });
+
+    // Notify all org users of the new payment request (fire-and-forget)
+    prisma.user.findMany({ where: { organizationId }, select: { id: true } }).then((users) => {
+      createNotifications(
+        users.map((u) => ({
+          userId: u.id,
+          type: "payment_due" as const,
+          title: "New payment request",
+          body: `$${data.amount.toFixed(2)} payment request submitted via ${data.method}`,
+          relatedUrl: "/rent",
+        })),
+      );
+    });
+
     return Response.json(request, { status: 201 });
   } catch (err) {
     if (err instanceof z.ZodError) return Response.json({ error: err.issues }, { status: 400 });

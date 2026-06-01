@@ -4,6 +4,7 @@ import { requireOrg } from "@/lib/session";
 import { z } from "zod";
 import { sendPortalInvite, APP_URL } from "@/lib/email";
 import crypto from "crypto";
+import { applicationRequirements } from "@/lib/application-workflow";
 
 const convertSchema = z.object({
   startDate: z.string(),
@@ -26,17 +27,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
     if (!application) return Response.json({ error: "Not found" }, { status: 404 });
     if (application.status === "approved") return Response.json({ error: "Already converted" }, { status: 409 });
+    if (application.status !== "screening") return Response.json({ error: "Application must be in screening before approval", guards: ["Move the application to screening after documents are reviewed."] }, { status: 400 });
     if (!application.unitId) return Response.json({ error: "No unit associated with this application" }, { status: 400 });
 
     // Pre-flight validation guards
-    const guards: string[] = [];
-    if (!application.email) guards.push("Applicant email is required for portal invite");
-    if (!application.backgroundCheckStatus || !["passed", "conditional"].includes(application.backgroundCheckStatus)) {
-      guards.push("Screening must be marked passed or conditional");
-    }
-    if (application.documents.length === 0) {
-      guards.push("At least one supporting document is required");
-    }
+    const guards = applicationRequirements(application).blockers;
     if (guards.length > 0) {
       return Response.json({ error: "Cannot approve: requirements not met", guards }, { status: 400 });
     }
@@ -101,7 +96,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           entityType: "application",
           entityId: id,
           eventType: "status_changed",
-          metadata: { from: "pending", to: "approved", tenantId: tenant.id, leaseId: lease.id },
+          metadata: { from: application.status, to: "approved", tenantId: tenant.id, leaseId: lease.id },
         },
       });
 

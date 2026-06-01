@@ -31,6 +31,13 @@ model Organization {
   applications        Application[]
   messages            Message[]
   paymentRequests     PaymentRequest[]
+  documents           PropertyDocument[]
+  agentRuns           AgentRun[]
+  agentTasks          AgentTask[]
+  tasks               Task[]
+  bills               Bill[]
+  workOrders          WorkOrder[]
+  inspections         Inspection[]
 
   @@map("organizations")
 }
@@ -59,6 +66,7 @@ model User {
   maintenanceComments  MaintenanceComment[]
   reviewedApplications Application[]        @relation("reviewer")
   applicationInvites   ApplicationInvite[]
+  approvedAgentTasks   AgentTask[]          @relation("taskApprover")
 
   @@index([organizationId])
   @@index([email])
@@ -96,6 +104,8 @@ model Property {
   applicationInvites  ApplicationInvite[]
   applications        Application[]
   expenses            PropertyExpenses?
+  documents           PropertyDocument[]
+  bills               Bill[]
 
   @@index([organizationId])
   @@index([status])
@@ -246,6 +256,11 @@ model Lease {
   // Move-in
   moveInCompleted     Boolean   @default(false)
   moveInCompletedAt   DateTime?
+  // Move-out
+  moveOutDate         DateTime?
+  moveOutNoticedAt    DateTime?
+  depositReturnAmount Decimal?  @db.Decimal(10, 2)
+  depositReturnedAt   DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -431,6 +446,7 @@ model Vendor {
 
   organization        Organization         @relation(fields: [organizationId], references: [id])
   maintenanceRequests MaintenanceRequest[]
+  bills               Bill[]
 
   @@index([organizationId])
   @@map("vendors")
@@ -777,4 +793,231 @@ model PortalSession {
 
   @@index([tenantId])
   @@map("portal_sessions")
+}
+
+// ─────────────────────────────────────────
+// DOCUMENTATION CENTER
+// ─────────────────────────────────────────
+model PropertyDocument {
+  id              String    @id @default(cuid())
+  organizationId  String
+  propertyId      String?
+  documentType    String    @default("other") // utility|maintenance|tax|insurance|legal|other
+  vendor          String?
+  amount          Decimal?  @db.Decimal(10, 2)
+  issueDate       DateTime?
+  dueDate         DateTime?
+  fileUrl         String
+  fileKey         String?
+  fileName        String
+  confidenceScore Float?
+  aiEstimated     Boolean   @default(true)
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  property     Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([propertyId])
+  @@map("property_documents")
+}
+
+// ─────────────────────────────────────────
+// TASKS & FOLLOW-UPS
+// ─────────────────────────────────────────
+model Task {
+  id             String    @id @default(cuid())
+  organizationId String
+  title          String
+  description    String?
+  relatedType    String?   // property | unit | tenant | lease | maintenance | application
+  relatedId      String?
+  propertyId     String?
+  unitId         String?
+  tenantId       String?
+  leaseId        String?
+  applicationId  String?
+  maintenanceId  String?
+  dueDate        DateTime?
+  priority       String    @default("medium") // low | medium | high | urgent
+  status         String    @default("open")   // open | in_progress | waiting | done | cancelled
+  assignedUserId String?
+  createdByAI    Boolean   @default(false)
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, dueDate])
+  @@map("tasks")
+}
+
+// ─────────────────────────────────────────
+// BILLS & PAYABLES
+// ─────────────────────────────────────────
+model Bill {
+  id             String    @id @default(cuid())
+  organizationId String
+
+  // Source
+  vendorId       String?
+  vendorName     String?   // free-text vendor if no Vendor record
+  propertyId     String?
+  unitId         String?
+  documentId     String?   // PropertyDocument id that sourced this bill
+
+  // Financial
+  amount         Decimal   @db.Decimal(10, 2)
+  billDate       DateTime?
+  dueDate        DateTime?
+  category       String    @default("other") // utility|repair|insurance|tax|mortgage|hoa|management|legal|other
+  description    String?
+  notes          String?
+
+  // Status: needs_review | approved | paid | overdue | rejected
+  status         String    @default("needs_review")
+
+  // Payment
+  paidAt         DateTime?
+  paidById       String?
+  transactionId  String?   // expense Transaction created on mark-paid — prevents duplicates
+
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  vendor         Vendor?      @relation(fields: [vendorId], references: [id])
+  property       Property?    @relation(fields: [propertyId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, dueDate])
+  @@index([propertyId])
+  @@map("bills")
+}
+
+// ─────────────────────────────────────────
+// WORK ORDERS
+// ─────────────────────────────────────────
+model WorkOrder {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  maintenanceRequestId  String?
+  propertyId            String?
+  unitId                String?
+  vendorId              String?
+  title                 String
+  description           String?
+  // Statuses: new | assigned | waiting_estimate | approved | in_progress | completed | invoiced | cancelled
+  status                String    @default("new")
+  estimatedCost         Decimal?  @db.Decimal(10, 2)
+  actualCost            Decimal?  @db.Decimal(10, 2)
+  vendorQuote           Decimal?  @db.Decimal(10, 2)
+  vendorQuoteApprovedAt DateTime?
+  scheduledDate         DateTime?
+  completedDate         DateTime?
+  invoiceUrl            String?
+  notes                 String?
+  transactionId         String?
+  createdById           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([propertyId])
+  @@map("work_orders")
+}
+
+// ─────────────────────────────────────────
+// INSPECTIONS
+// ─────────────────────────────────────────
+model Inspection {
+  id             String    @id @default(cuid())
+  organizationId String
+  propertyId     String
+  unitId         String?
+  leaseId        String?
+  tenantId       String?
+  // Types: move_in | move_out | annual | maintenance
+  inspectionType String
+  // Statuses: scheduled | in_progress | completed | cancelled
+  status         String    @default("scheduled")
+  scheduledDate  DateTime?
+  completedDate  DateTime?
+  notes          String?
+  // JSON array: [{room, condition, items:[{name,condition,notes}]}]
+  checklist      Json?
+  overallCondition String? // excellent | good | fair | poor
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, inspectionType])
+  @@index([propertyId])
+  @@map("inspections")
+}
+
+// ─────────────────────────────────────────
+// AGENT SYSTEM
+// ─────────────────────────────────────────
+model AgentRun {
+  id                   String    @id @default(cuid())
+  organizationId       String
+  triggerEvent         String    // daily_cron | manual | document_upload
+  status               String    @default("running") // running | completed | failed
+  confidenceScore      Float?
+  observationSummary   String?
+  verificationCriteria String?
+  tasksGenerated       Int       @default(0)
+  autoExecuted         Int       @default(0)
+  pendingApproval      Int       @default(0)
+  rawOutput            Json?
+  errorMessage         String?
+  startedAt            DateTime  @default(now())
+  completedAt          DateTime?
+  createdAt            DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  tasks        AgentTask[]
+
+  @@index([organizationId])
+  @@index([startedAt])
+  @@map("agent_runs")
+}
+
+model AgentTask {
+  id               String    @id @default(cuid())
+  organizationId   String
+  runId            String
+  actionId         String
+  riskTier         String    // AUTO_RUN | AUTO_DRAFT | STRICT_BLOCK
+  workflow         String    // daily_briefing | collections | lease_renewal | document_bookkeeping | maintenance_triage
+  title            String
+  description      String?
+  status           String    @default("pending") // pending | approved | rejected | executed | failed | auto_executed | blocked
+  executionPayload Json?
+  result           Json?
+  approvedById     String?
+  approvedAt       DateTime?
+  executedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  run          AgentRun     @relation(fields: [runId], references: [id])
+  approvedBy   User?        @relation("taskApprover", fields: [approvedById], references: [id])
+
+  @@index([organizationId])
+  @@index([runId])
+  @@index([status])
+  @@map("agent_tasks")
 }
