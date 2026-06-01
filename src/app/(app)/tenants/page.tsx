@@ -313,8 +313,12 @@ export default async function TenantsPage() {
                       return bDate.getTime() - aDate.getTime();
                     })[0];
                   return (
-                    <Link key={tenant.id} href={`/tenants/${tenant.id}`} className="block">
-                      <article className="rounded-lg border bg-card/50 p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md">
+                    <article key={tenant.id} className="relative rounded-lg border bg-card/50 p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md">
+                      <Link
+                        href={`/tenants/${tenant.id}`}
+                        className="absolute inset-0 z-0 rounded-lg"
+                        aria-label={`Open tenant file for ${tenant.firstName} ${tenant.lastName}`}
+                      />
                         <div className="flex items-start gap-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-muted-foreground">
                             {getInitials(`${tenant.firstName} ${tenant.lastName}`)}
@@ -342,20 +346,19 @@ export default async function TenantsPage() {
                           </div>
                         </div>
                         <div className="relative z-10 mt-3 flex items-center gap-2 border-t pt-3">
-                          <Link href={`/tenants/${tenant.id}/ledger`} onClick={(e) => e.stopPropagation()}>
+                          <Link href={`/tenants/${tenant.id}/ledger`}>
                             <Button size="sm" variant="outline" className="gap-1.5 text-xs">
                               <ScrollText className="h-3.5 w-3.5" />
                               Ledger
                             </Button>
                           </Link>
                           {lastLease && (
-                            <Link href={`/leases/${lastLease.id}`} className="quiet-link text-xs" onClick={(e) => e.stopPropagation()}>
+                            <Link href={`/leases/${lastLease.id}`} className="quiet-link text-xs">
                               View last lease
                             </Link>
                           )}
                         </div>
-                      </article>
-                    </Link>
+                    </article>
                   );
                 })}
               </div>
