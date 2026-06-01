@@ -83,8 +83,11 @@ function PortalPaymentsContent() {
             </CardHeader>
             <CardContent className="space-y-3">
               {unpaid.map((p: any) => {
-                const fee = calcFee(Number(p.amountDue));
-                const total = Number(p.amountDue) + fee;
+                const amountDue = Number(p.amountDue);
+                const amountPaid = Number(p.amountPaid ?? 0);
+                const remainingDue = Math.max(0, amountDue - amountPaid);
+                const fee = calcFee(remainingDue);
+                const total = remainingDue + fee;
                 return (
                   <div key={p.id} className="rounded-lg border p-3 space-y-2">
                     <div className="flex items-center justify-between">
@@ -98,7 +101,15 @@ function PortalPaymentsContent() {
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5 border-t pt-2">
                       <div className="flex justify-between">
-                        <span>Rent</span><span className="font-mono">{formatCurrency(Number(p.amountDue))}</span>
+                        <span>Rent due</span><span className="font-mono">{formatCurrency(amountDue)}</span>
+                      </div>
+                      {amountPaid > 0 && (
+                        <div className="flex justify-between">
+                          <span>Already paid</span><span className="font-mono">{formatCurrency(amountPaid)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-medium text-foreground">
+                        <span>Remaining rent</span><span className="font-mono">{formatCurrency(remainingDue)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Processing fee (2.9% + $0.30)</span><span className="font-mono">{formatCurrency(fee)}</span>

@@ -13,6 +13,7 @@ const createSchema = z.object({
   paidAt: z.string().optional(),
   paymentMethod: z.string().optional(),
   notes: z.string().optional(),
+  addToExisting: z.boolean().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -55,10 +56,26 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = createSchema.parse(body);
 
-    const lease = await prisma.lease.findFirst({ where: { id: data.leaseId, organizationId } });
+    const lease = await prisma.lease.findFirst({
+      where: { id: data.leaseId, organizationId },
+      select: { id: true, unitId: true, unit: { select: { propertyId: true } } },
+    });
     if (!lease) return Response.json({ error: "Lease not found" }, { status: 404 });
 
-    const amountPaid = data.amountPaid;
+    const existingPayment = await prisma.rentPayment.findUnique({
+      where: {
+        leaseId_periodYear_periodMonth: {
+          leaseId: data.leaseId,
+          periodYear: data.periodYear,
+          periodMonth: data.periodMonth,
+        },
+      },
+    });
+
+    const collectedNow = data.amountPaid;
+    const amountPaid = data.addToExisting
+      ? Math.round((Number(existingPayment?.amountPaid ?? 0) + collectedNow) * 100) / 100
+      : collectedNow;
     const amountDue = data.amountDue;
     let status = "pending";
     if (amountPaid >= amountDue) status = "paid";
@@ -67,26 +84,35 @@ export async function POST(req: NextRequest) {
 
     const payment = await prisma.rentPayment.upsert({
       where: { leaseId_periodYear_periodMonth: { leaseId: data.leaseId, periodYear: data.periodYear, periodMonth: data.periodMonth } },
-      update: { amountPaid, status, paidAt: data.paidAt ? new Date(data.paidAt) : status === "paid" ? new Date() : undefined, paymentMethod: data.paymentMethod, notes: data.notes, recordedById: userId },
+      update: { amountDue, amountPaid, status, paidAt: data.paidAt ? new Date(data.paidAt) : amountPaid > 0 ? new Date() : undefined, paymentMethod: data.paymentMethod, notes: data.notes, recordedById: userId },
       create: {
-        ...data,
         organizationId,
+        leaseId: data.leaseId,
+        periodYear: data.periodYear,
+        periodMonth: data.periodMonth,
+        amountDue,
+        amountPaid,
         status,
         dueDate: new Date(data.dueDate),
-        paidAt: data.paidAt ? new Date(data.paidAt) : status === "paid" ? new Date() : undefined,
+        paidAt: data.paidAt ? new Date(data.paidAt) : amountPaid > 0 ? new Date() : undefined,
+        paymentMethod: data.paymentMethod,
+        notes: data.notes,
         recordedById: userId,
       },
     });
 
     // Log transaction when payment is made
-    if (amountPaid > 0) {
+    const transactionAmount = data.addToExisting ? collectedNow : amountPaid;
+    if (transactionAmount > 0) {
       await prisma.transaction.create({
         data: {
           organizationId,
           leaseId: data.leaseId,
+          propertyId: lease.unit?.propertyId ?? null,
+          unitId: lease.unitId,
           type: "income",
           category: "rent",
-          amount: amountPaid,
+          amount: transactionAmount,
           date: payment.paidAt ?? new Date(),
           description: `Rent payment ${data.periodYear}-${String(data.periodMonth).padStart(2, "0")}`,
           paymentMethod: data.paymentMethod,
@@ -103,7 +129,12 @@ export async function POST(req: NextRequest) {
         entityType: "payment",
         entityId: payment.id,
         eventType: "payment_recorded",
-        metadata: { amount: amountPaid, status, period: `${data.periodYear}-${data.periodMonth}` },
+        metadata: {
+          amount: transactionAmount,
+          totalPaid: amountPaid,
+          status,
+          period: `${data.periodYear}-${data.periodMonth}`,
+        },
       },
     });
 

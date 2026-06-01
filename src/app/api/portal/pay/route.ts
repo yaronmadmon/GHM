@@ -21,6 +21,8 @@ export async function POST(req: NextRequest) {
 
   if (!payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
   if (payment.status === "paid") return NextResponse.json({ error: "Already paid" }, { status: 400 });
+  const remainingDue = Math.max(0, Number(payment.amountDue) - Number(payment.amountPaid));
+  if (remainingDue <= 0) return NextResponse.json({ error: "Already paid" }, { status: 400 });
 
   const org = await prisma.organization.findUnique({
     where: { id: payment.organizationId },
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-  const rentCents = Math.round(Number(payment.amountDue) * 100);
+  const rentCents = Math.round(remainingDue * 100);
   const feeCents = Math.round(rentCents * 0.029) + 30; // 2.9% + $0.30
   const period = new Date(payment.dueDate).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const baseUrl = process.env.NEXTAUTH_URL;

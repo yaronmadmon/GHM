@@ -9,6 +9,7 @@ export interface LedgerRentPayment {
 
 export interface LedgerTransaction {
   type: string;
+  category?: string | null;
   amount: MoneyLike;
   description?: string | null;
   date?: Date | string;
@@ -23,10 +24,12 @@ export function calculateLeaseBalance(input: {
   rentPayments: LedgerRentPayment[];
   transactions: LedgerTransaction[];
 }) {
-  const transactionBalance = input.transactions.reduce((sum, transaction) => {
-    const amount = toNumber(transaction.amount);
-    return sum + (transaction.type === "income" ? amount : -amount);
-  }, 0);
+  const transactionBalance = input.transactions
+    .filter((transaction) => transaction.category !== "rent")
+    .reduce((sum, transaction) => {
+      const amount = toNumber(transaction.amount);
+      return sum + (transaction.type === "income" ? amount : -amount);
+    }, 0);
 
   return Math.round((calculateLeaseRentBalance(input) + transactionBalance) * 100) / 100;
 }

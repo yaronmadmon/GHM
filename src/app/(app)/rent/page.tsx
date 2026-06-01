@@ -103,9 +103,10 @@ export default function RentPage() {
         periodMonth: month,
         amountDue: Number(recordDialog.monthlyDue ?? recordDialog.rentAmount),
         amountPaid: parseFloat(form.get("amount") as string),
-        dueDate: new Date(year, month - 1, 1).toISOString(),
+        dueDate: recordDialog.dueDateForPeriod ?? new Date(year, month - 1, 1).toISOString(),
         paymentMethod: form.get("method"),
         notes: form.get("notes") || undefined,
+        addToExisting: true,
       }),
     });
     setSaving(false);
@@ -125,6 +126,9 @@ export default function RentPage() {
   const totalExpected = items.reduce((s, i) => s + Number(i.monthlyDue ?? i.rentAmount), 0);
   const totalCollected = items.reduce((s, i) => s + (i.payment ? parseFloat(String(i.payment.amountPaid)) : 0), 0);
   const totalOutstanding = items.reduce((s, i) => s + Math.max(0, Number(i.balance ?? 0)), 0);
+  const recordAmountDue = recordDialog ? Number(recordDialog.monthlyDue ?? recordDialog.rentAmount) : 0;
+  const recordAlreadyPaid = recordDialog?.payment ? parseFloat(String(recordDialog.payment.amountPaid)) : 0;
+  const recordRemaining = Math.max(0, Math.round((recordAmountDue - recordAlreadyPaid) * 100) / 100);
 
   return (
     <div className="page-shell page-stack">
@@ -323,13 +327,23 @@ export default function RentPage() {
                     </div>
                   ))}
                   <div className="flex justify-between border-t pt-1 font-medium text-foreground">
-                    <span>Total due</span><span className="font-mono">{formatCurrency(Number(recordDialog.monthlyDue ?? recordDialog.rentAmount))}</span>
+                    <span>Total due</span><span className="font-mono">{formatCurrency(recordAmountDue)}</span>
                   </div>
+                  {recordAlreadyPaid > 0 && (
+                    <>
+                      <div className="flex justify-between">
+                        <span>Already collected</span><span className="font-mono">{formatCurrency(recordAlreadyPaid)}</span>
+                      </div>
+                      <div className="flex justify-between font-medium text-foreground">
+                        <span>Remaining</span><span className="font-mono">{formatCurrency(recordRemaining)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Amount</Label>
-                <Input name="amount" type="number" step="0.01" defaultValue={String(recordDialog.monthlyDue ?? recordDialog.rentAmount)} required />
+                <Input name="amount" type="number" step="0.01" min="0.01" defaultValue={recordRemaining > 0 ? recordRemaining.toFixed(2) : ""} placeholder="0.00" required />
               </div>
               <div className="space-y-2">
                 <Label>Payment method</Label>

@@ -30,11 +30,13 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate, formatRelativeTime, getInitials } from "@/lib/utils";
 import { calculateLeaseOutstandingBalance } from "@/lib/rent-ledger";
+import { leaseMonthlyDueForPeriod } from "@/lib/monthly-charges";
 import { TenantMessageButton } from "@/components/tenants/TenantMessageButton";
 import { SendPortalInviteButton } from "@/components/tenants/SendPortalInviteButton";
 import { TenantActions } from "@/components/tenants/TenantActions";
 import { MonthlyChargesManager } from "@/components/tenants/MonthlyChargesManager";
 import { TenantChargeButton } from "@/components/tenants/TenantChargeButton";
+import { TenantPaymentButton } from "@/components/tenants/TenantPaymentButton";
 import { NoticeDraftButton } from "@/components/tenants/NoticeDraftButton";
 import { MoveOutButton } from "@/components/tenants/MoveOutButton";
 
@@ -201,6 +203,9 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
   const tenantName = `${tenant.firstName} ${tenant.lastName}`;
   const occupants = parseOccupants(app?.additionalOccupants);
   const leaseTenants = activeLease?.tenants ?? [];
+  const currentPeriodDate = new Date();
+  const currentPeriodYear = currentPeriodDate.getFullYear();
+  const currentPeriodMonth = currentPeriodDate.getMonth() + 1;
   const currentBalance = activeLease
     ? calculateLeaseOutstandingBalance({ rentPayments: activeLease.rentPayments, transactions: activeLease.transactions })
     : 0;
@@ -214,8 +219,16 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
     isActive: charge.isActive,
     notes: charge.notes,
   })) ?? [];
-  const monthlyChargeTotal = monthlyCharges.reduce((sum, charge) => sum + charge.amount, 0);
-  const monthlyTotalDue = Number(activeLease?.rentAmount ?? 0) + monthlyChargeTotal;
+  const monthlyTotalDue = activeLease
+    ? leaseMonthlyDueForPeriod(activeLease.rentAmount, activeLease.monthlyCharges, currentPeriodYear, currentPeriodMonth)
+    : 0;
+  const paymentPeriods = activeLease?.rentPayments.map((payment) => ({
+    periodYear: payment.periodYear,
+    periodMonth: payment.periodMonth,
+    amountDue: Number(payment.amountDue),
+    amountPaid: Number(payment.amountPaid),
+    status: payment.status,
+  })) ?? [];
   const adHocCharges = (activeLease?.transactions ?? [])
     .filter((t) => t.category !== "rent")
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -281,6 +294,19 @@ export default async function TenantDetailPage({ params }: { params: Promise<{ i
           <TenantActions
             tenant={tenantActionData}
           />
+          {activeLease && (
+            <TenantPaymentButton
+              leaseId={activeLease.id}
+              tenantName={tenantName}
+              monthlyDue={monthlyTotalDue}
+              paymentDueDay={activeLease.paymentDueDay}
+              payments={paymentPeriods}
+              periodYear={currentPeriodYear}
+              periodMonth={currentPeriodMonth}
+              buttonLabel="Add payment"
+              size="sm"
+            />
+          )}
           <Link href={`/tenants/${id}/ledger`}>
             <Button size="sm" variant="outline" className="gap-2">
               <ScrollText className="h-4 w-4" />

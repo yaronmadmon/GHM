@@ -138,6 +138,7 @@ function buildLedger(lease: Lease): LedgerRow[] {
 
   // Transactions (fees, legal charges, etc.)
   for (const t of lease.transactions) {
+    if (t.category === "rent") continue;
     const amt = Number(t.amount);
     const desc = t.description ?? `${t.category.replace(/_/g, " ")} — ${t.type}`;
     rows.push({
