@@ -100,10 +100,14 @@ billing_period rules:
 - Annual property tax or yearly bill → "annual"
 - Not determinable → "unknown"
 
-Property matching rules:
-- Match aggressively: use street number, street name, city, zip — a partial address match is enough
-- Account numbers and service addresses on utility bills often reveal the property — use them
-- If only one property is in the portfolio and the document seems related, prefer matching it over returning null
+Property matching rules — CRITICAL:
+- The property_id you return determines which folder the document is filed into. Get this right.
+- Match aggressively using ANY of: street number, street name, city, zip code, account number, service address, account name, property name
+- A match on street number + street name alone is a confident match — full address agreement is not required
+- Utility bills (gas, electric, water) always have a service address — extract it and match against the properties list
+- If the portfolio has only one property and the document appears to be a property-related bill or notice, match it to that property
+- Only return null for property_id if the document is clearly unrelated to any listed property (e.g., a personal document, an unrelated business receipt)
+- When uncertain between two properties, pick the closest match rather than returning null
 `;
 
 async function extractPdfText(base64: string): Promise<string> {
