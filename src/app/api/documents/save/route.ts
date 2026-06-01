@@ -8,6 +8,7 @@ const DOC_TYPE_TO_TX_CATEGORY: Record<string, string> = {
   tax: "tax",
   insurance: "insurance",
   legal: "other",
+  notice: "other",
   other: "other",
 };
 
@@ -30,6 +31,10 @@ const PERIOD_DIVISOR: Record<string, number> = {
   unknown: 1,
 };
 
+function formatCurrency(n: number) {
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { organizationId, userId } = await requireOrg();
@@ -43,6 +48,8 @@ export async function POST(req: NextRequest) {
       documentType,
       vendor,
       amount,
+      pastDueAmount,
+      isPastDueNotice,
       issueDate,
       dueDate,
       confidenceScore,
@@ -57,6 +64,8 @@ export async function POST(req: NextRequest) {
       documentType: string;
       vendor?: string | null;
       amount?: number | null;
+      pastDueAmount?: number | null;
+      isPastDueNotice?: boolean;
       issueDate?: string | null;
       dueDate?: string | null;
       confidenceScore?: number | null;
@@ -67,6 +76,16 @@ export async function POST(req: NextRequest) {
 
     if (!fileUrl || !fileName) {
       return Response.json({ error: "fileUrl and fileName are required" }, { status: 400 });
+    }
+
+    // Resolve property name for task titles
+    let propertyName: string | null = null;
+    if (propertyId) {
+      const prop = await prisma.property.findUnique({
+        where: { id: propertyId },
+        select: { name: true },
+      });
+      propertyName = prop?.name ?? null;
     }
 
     // Create the document record
@@ -89,8 +108,9 @@ export async function POST(req: NextRequest) {
       include: { property: { select: { id: true, name: true } } },
     });
 
-    // Log a Transaction expense if amount + property are present
-    if (amount != null && amount > 0 && propertyId) {
+    // Log a Transaction expense for regular (non-notice) bills with an amount
+    const isNotice = documentType === "notice" || isPastDueNotice;
+    if (!isNotice && amount != null && amount > 0 && propertyId) {
       const txCategory = DOC_TYPE_TO_TX_CATEGORY[documentType] ?? "other";
       const txDate = issueDate ? new Date(issueDate) : new Date();
       const txDescription = [vendor, fileName].filter(Boolean).join(" — ");
@@ -109,9 +129,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Update PropertyExpenses if this document maps to a specific expense field
+    // Update PropertyExpenses monthly estimate (only for regular recurring bills)
     const column = expenseField ? EXPENSE_FIELD_TO_COLUMN[expenseField] : null;
-    if (column && propertyId && amount != null && amount > 0) {
+    if (!isNotice && column && propertyId && amount != null && amount > 0) {
       const divisor = PERIOD_DIVISOR[billingPeriod ?? "unknown"] ?? 1;
       const monthlyAmount = Math.round((amount / divisor) * 100) / 100;
 
@@ -119,6 +139,47 @@ export async function POST(req: NextRequest) {
         where: { propertyId },
         update: { [column]: monthlyAmount, aiEstimatedAt: new Date() },
         create: { propertyId, [column]: monthlyAmount, aiEstimatedAt: new Date() },
+      });
+    }
+
+    // Create a Task for notices or bills with a past-due balance
+    const shouldCreateTask = isNotice || (pastDueAmount != null && pastDueAmount > 0);
+    if (shouldCreateTask) {
+      const vendorLabel = vendor ?? fileName;
+      const propLabel = propertyName ? ` — ${propertyName}` : "";
+      const dueDateForTask = dueDate ? new Date(dueDate) : null;
+
+      let title: string;
+      let description: string;
+
+      if (isNotice) {
+        const amountLabel = amount != null ? ` (${formatCurrency(amount)})` : "";
+        title = `Notice received: ${vendorLabel}${propLabel}${amountLabel}`;
+        description =
+          `A notice was received from ${vendorLabel}${propLabel}. ` +
+          (amount != null ? `Amount on notice: ${formatCurrency(amount)}. ` : "") +
+          (pastDueAmount != null ? `Past-due balance: ${formatCurrency(pastDueAmount)}. ` : "") +
+          (dueDate ? `Due by: ${new Date(dueDate).toLocaleDateString()}.` : "Review and take action.");
+      } else {
+        title = `Past-due balance: ${vendorLabel}${propLabel} — ${formatCurrency(pastDueAmount!)}`;
+        description =
+          `${vendorLabel} bill${propLabel} shows a past-due balance of ${formatCurrency(pastDueAmount!)}. ` +
+          (amount != null ? `Current period charges: ${formatCurrency(amount)}. ` : "") +
+          "Resolve the outstanding balance to avoid service interruption.";
+      }
+
+      await prisma.task.create({
+        data: {
+          organizationId,
+          title,
+          description,
+          propertyId: propertyId || null,
+          dueDate: dueDateForTask,
+          priority: isNotice ? "urgent" : "high",
+          status: "open",
+          createdById: userId,
+          createdByAI: true,
+        },
       });
     }
 
@@ -130,6 +191,7 @@ export async function POST(req: NextRequest) {
         dueDate: doc.dueDate?.toISOString() ?? null,
         createdAt: doc.createdAt.toISOString(),
         updatedAt: doc.updatedAt.toISOString(),
+        taskCreated: shouldCreateTask,
       },
       { status: 201 },
     );

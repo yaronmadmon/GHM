@@ -10,20 +10,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  FolderOpen,
-  Upload,
-  Sparkles,
-  FileText,
-  ExternalLink,
   AlertTriangle,
+  ExternalLink,
+  Eye,
+  FileText,
+  FolderOpen,
+  Sparkles,
   TrendingDown,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ParsedDocument, ExpenseField, BillingPeriod } from "@/lib/document-parser";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type DocType = "utility" | "maintenance" | "tax" | "insurance" | "legal" | "other";
+type DocType = "utility" | "maintenance" | "tax" | "insurance" | "legal" | "notice" | "other";
 
 interface Property {
   id: string;
@@ -56,6 +57,7 @@ interface ConfirmForm {
   documentType: DocType;
   vendor: string;
   amount: string;
+  pastDueAmount: string;
   issueDate: string;
   dueDate: string;
   notes: string;
@@ -71,10 +73,11 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   tax: "Tax",
   insurance: "Insurance",
   legal: "Legal",
+  notice: "Notice",
   other: "Other",
 };
 
-const DOC_TYPE_ORDER: DocType[] = ["utility", "maintenance", "tax", "insurance", "legal", "other"];
+const DOC_TYPE_ORDER: DocType[] = ["notice", "utility", "maintenance", "tax", "insurance", "legal", "other"];
 
 const EXPENSE_FIELD_LABELS: Record<string, string> = {
   property_tax: "Property Tax",
@@ -118,6 +121,17 @@ function computeMonthly(amount: string, billingPeriod: BillingPeriod): number | 
   return Math.round((n / (PERIOD_DIVISOR[billingPeriod] ?? 1)) * 100) / 100;
 }
 
+function isImageMime(url: string) {
+  const lower = url.toLowerCase();
+  if (lower.startsWith("data:image/")) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i.test(lower);
+}
+
+function isPdfMime(url: string) {
+  if (url.startsWith("data:application/pdf")) return true;
+  return /\.pdf(\?|$)/i.test(url);
+}
+
 // ─── Doc Type Badge ───────────────────────────────────────────────────────────
 
 const DOC_TYPE_COLORS: Record<string, string> = {
@@ -126,6 +140,7 @@ const DOC_TYPE_COLORS: Record<string, string> = {
   tax: "bg-red-100 text-red-700 border-red-200",
   insurance: "bg-purple-100 text-purple-700 border-purple-200",
   legal: "bg-gray-100 text-gray-700 border-gray-200",
+  notice: "bg-amber-100 text-amber-700 border-amber-200",
   other: "bg-muted text-muted-foreground border-border",
 };
 
@@ -175,10 +190,130 @@ function ExpenseUpdatePreview({
   );
 }
 
+// ─── Document Preview Modal ───────────────────────────────────────────────────
+
+function DocumentPreviewModal({
+  doc,
+  open,
+  onClose,
+}: {
+  doc: SavedDocument | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!doc) return null;
+  const isImage = isImageMime(doc.fileUrl);
+  const isPdf = isPdfMime(doc.fileUrl);
+  const isDataUri = doc.fileUrl.startsWith("data:");
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="truncate text-base">{doc.fileName}</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-auto min-h-0">
+          {isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={doc.fileUrl}
+              alt={doc.fileName}
+              className="w-full rounded-md object-contain max-h-[70vh]"
+            />
+          ) : isPdf && !isDataUri ? (
+            <iframe
+              src={doc.fileUrl}
+              className="w-full rounded-md"
+              style={{ height: "70vh" }}
+              title={doc.fileName}
+            />
+          ) : isPdf && isDataUri ? (
+            // data-URI PDFs: extract base64 and open via object URL
+            <PdfDataUriViewer fileUrl={doc.fileUrl} fileName={doc.fileName} />
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
+              <FileText className="h-12 w-12 opacity-30" />
+              <p className="text-sm">Preview not available for this file type.</p>
+              <a
+                href={doc.fileUrl}
+                download={doc.fileName}
+                className="text-sm text-primary hover:underline"
+              >
+                Download to view
+              </a>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-between pt-2 border-t gap-2 flex-wrap">
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            {doc.property?.name && <p>Property: {doc.property.name}</p>}
+            {doc.vendor && <p>Vendor: {doc.vendor}</p>}
+            {doc.amount != null && <p>Amount: {formatAmount(doc.amount)}</p>}
+          </div>
+          {!isDataUri ? (
+            <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer">
+              <Button size="sm" variant="outline" className="gap-2">
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open in new tab
+              </Button>
+            </a>
+          ) : (
+            <a href={doc.fileUrl} download={doc.fileName}>
+              <Button size="sm" variant="outline" className="gap-2">
+                Download
+              </Button>
+            </a>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PdfDataUriViewer({ fileUrl, fileName }: { fileUrl: string; fileName: string }) {
+  const [objUrl] = useState(() => {
+    try {
+      const base64 = fileUrl.split(",")[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  });
+
+  if (!objUrl) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
+        <p className="text-sm">Could not render PDF preview.</p>
+        <a href={fileUrl} download={fileName} className="text-sm text-primary hover:underline">
+          Download instead
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      src={objUrl}
+      className="w-full rounded-md"
+      style={{ height: "70vh" }}
+      title={fileName}
+    />
+  );
+}
+
 // ─── Document Card ────────────────────────────────────────────────────────────
 
-function DocumentCard({ doc }: { doc: SavedDocument }) {
-  const isDataUri = doc.fileUrl.startsWith("data:");
+function DocumentCard({
+  doc,
+  onPreview,
+}: {
+  doc: SavedDocument;
+  onPreview: (doc: SavedDocument) => void;
+}) {
   return (
     <div className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
       <FileText className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
@@ -200,24 +335,15 @@ function DocumentCard({ doc }: { doc: SavedDocument }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <DocTypeBadge type={doc.documentType} />
-        {!isDataUri ? (
-          <a
-            href={doc.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-primary hover:underline flex items-center gap-0.5"
-          >
-            View <ExternalLink className="h-3 w-3" />
-          </a>
-        ) : (
-          <a
-            href={doc.fileUrl}
-            download={doc.fileName}
-            className="text-xs text-primary hover:underline"
-          >
-            Download
-          </a>
-        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 gap-1 px-2 text-xs text-primary"
+          onClick={() => onPreview(doc)}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          View
+        </Button>
       </div>
     </div>
   );
@@ -247,6 +373,7 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
     documentType: "other",
     vendor: "",
     amount: "",
+    pastDueAmount: "",
     issueDate: "",
     dueDate: "",
     notes: "",
@@ -256,12 +383,21 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
   const [saving, setSaving] = useState(false);
   const [documents, setDocuments] = useState<SavedDocument[]>(initialDocuments);
 
+  // Preview state
+  const [previewDoc, setPreviewDoc] = useState<SavedDocument | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  function openPreview(doc: SavedDocument) {
+    setPreviewDoc(doc);
+    setPreviewOpen(true);
+  }
+
   function setField<K extends keyof ConfirmForm>(key: K, value: ConfirmForm[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
   const handleFile = useCallback(async (file: File) => {
-    const MAX = 4 * 1024 * 1024; // 4 MB — Vercel request body limit
+    const MAX = 4 * 1024 * 1024;
     if (file.size > MAX) {
       toast.error("File too large. Max 4 MB.");
       return;
@@ -294,9 +430,10 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
       const ed = data.parsed.extracted_data;
       setForm({
         propertyId: ed.property_id ?? "",
-        documentType: ed.document_type ?? "other",
+        documentType: (ed.document_type ?? "other") as DocType,
         vendor: ed.vendor ?? "",
         amount: ed.amount != null ? String(ed.amount) : "",
+        pastDueAmount: ed.past_due_amount != null ? String(ed.past_due_amount) : "",
         issueDate: ed.issue_date ?? "",
         dueDate: ed.due_date ?? "",
         notes: "",
@@ -329,6 +466,9 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
     if (!pendingMeta) return;
     setSaving(true);
     try {
+      const isPastDueNotice =
+        form.documentType === "notice" || parsedDoc?.extracted_data?.is_past_due_notice === true;
+
       const res = await fetch("/api/documents/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -340,6 +480,8 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
           documentType: form.documentType,
           vendor: form.vendor || null,
           amount: form.amount ? parseFloat(form.amount) : null,
+          pastDueAmount: form.pastDueAmount ? parseFloat(form.pastDueAmount) : null,
+          isPastDueNotice,
           issueDate: form.issueDate || null,
           dueDate: form.dueDate || null,
           confidenceScore: parsedDoc?.confidence_score ?? null,
@@ -357,6 +499,7 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
 
       const saved = (await res.json()) as SavedDocument & {
         property?: { id: string; name: string } | null;
+        taskCreated?: boolean;
       };
 
       const propMatch = form.propertyId ? properties.find((p) => p.id === form.propertyId) : null;
@@ -372,7 +515,9 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
       setPendingMeta(null);
 
       const monthly = computeMonthly(form.amount, form.billingPeriod);
-      if (form.expenseField && monthly) {
+      if (saved.taskCreated) {
+        toast.success("Document saved · Task created for follow-up");
+      } else if (form.expenseField && monthly) {
         toast.success(
           `Document saved · ${EXPENSE_FIELD_LABELS[form.expenseField]} updated to ${formatAmount(monthly)}/mo`,
         );
@@ -398,6 +543,11 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
     return acc;
   }, {});
 
+  const isPastDueNotice =
+    form.documentType === "notice" || parsedDoc?.extracted_data?.is_past_due_notice === true;
+  const pastDueVal = parseFloat(form.pastDueAmount);
+  const hasPastDue = !isNaN(pastDueVal) && pastDueVal > 0;
+
   return (
     <div className="page-shell page-stack">
       <section className="office-header">
@@ -417,7 +567,6 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
       </section>
 
       <div className="space-y-6">
-
         {/* Upload zone */}
         <div
           onDrop={onDrop}
@@ -488,7 +637,7 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
                   <CardContent className="p-0">
                     <div className="divide-y">
                       {docs.map((doc) => (
-                        <DocumentCard key={doc.id} doc={doc} />
+                        <DocumentCard key={doc.id} doc={doc} onPreview={openPreview} />
                       ))}
                     </div>
                   </CardContent>
@@ -512,9 +661,26 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
           </DialogHeader>
 
           <div className="space-y-1 mb-1">
-            {parsedDoc && (
-              <ConfidenceDot score={parsedDoc.confidence_score} />
+            {parsedDoc && <ConfidenceDot score={parsedDoc.confidence_score} />}
+
+            {/* Notice or past-due warnings */}
+            {isPastDueNotice && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                  This is a notice — a follow-up task will be created automatically.
+                </p>
+              </div>
             )}
+            {!isPastDueNotice && hasPastDue && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                  Past-due balance of {formatAmount(pastDueVal)} detected — a task will be created to remind you to resolve it.
+                </p>
+              </div>
+            )}
+
             {parsedDoc?.flags.is_amount_uncertain && (
               <p className="text-xs text-amber-600 flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" /> Amount may be uncertain — please verify
@@ -584,10 +750,10 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
               />
             </div>
 
-            {/* Amount + Billing period */}
+            {/* Amount + Past-due amount */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Amount ($)</Label>
+                <Label>Current charges ($)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -598,24 +764,37 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Billing period</Label>
-                <Select
-                  value={form.billingPeriod}
-                  onValueChange={(v) =>
-                    setField("billingPeriod", (v ?? "unknown") as BillingPeriod)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="quarterly">Quarterly</SelectItem>
-                    <SelectItem value="annual">Annual</SelectItem>
-                    <SelectItem value="unknown">Unknown</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Past-due balance ($)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  value={form.pastDueAmount}
+                  onChange={(e) => setField("pastDueAmount", e.target.value)}
+                />
               </div>
+            </div>
+
+            {/* Billing period */}
+            <div className="space-y-1.5">
+              <Label>Billing period</Label>
+              <Select
+                value={form.billingPeriod}
+                onValueChange={(v) =>
+                  setField("billingPeriod", (v ?? "unknown") as BillingPeriod)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly</SelectItem>
+                  <SelectItem value="quarterly">Quarterly</SelectItem>
+                  <SelectItem value="annual">Annual</SelectItem>
+                  <SelectItem value="unknown">Unknown</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Dates */}
@@ -664,6 +843,13 @@ export function DocumentCenterClient({ initialDocuments, properties }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Document preview modal */}
+      <DocumentPreviewModal
+        doc={previewDoc}
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   );
 }

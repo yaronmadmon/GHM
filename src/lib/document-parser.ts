@@ -24,9 +24,14 @@ export interface ParsedDocument {
   extracted_data: {
     property_id: string | null;
     property_name_found: string | null;
-    document_type: "utility" | "maintenance" | "tax" | "insurance" | "legal" | "other";
+    document_type: "utility" | "maintenance" | "tax" | "insurance" | "legal" | "notice" | "other";
     vendor: string | null;
+    /** Current period charges ONLY — never the total-due or past-due balance */
     amount: number | null;
+    /** Past-due / overdue balance shown on the document, separate from current charges */
+    past_due_amount: number | null;
+    /** True when the document is primarily a past-due / delinquency / shut-off notice */
+    is_past_due_notice: boolean;
     issue_date: string | null;
     due_date: string | null;
     expense_field: ExpenseField;
@@ -46,12 +51,14 @@ Return a JSON object with exactly this structure:
   "extracted_data": {
     "property_id": <string id from properties list, or null if no confident match>,
     "property_name_found": <string name/address found on document, or null>,
-    "document_type": <one of: "utility" | "maintenance" | "tax" | "insurance" | "legal" | "other">,
+    "document_type": <one of: "utility" | "maintenance" | "tax" | "insurance" | "legal" | "notice" | "other">,
     "vendor": <string vendor/issuer name, or null>,
-    "amount": <number total amount on the document, or null>,
+    "amount": <number — CURRENT PERIOD charges only, or null. See amount rules below.>,
+    "past_due_amount": <number — any past-due/overdue balance shown, or null>,
+    "is_past_due_notice": <boolean — true if document is primarily a delinquency/shut-off/past-due notice>,
     "issue_date": <string "YYYY-MM-DD" or null>,
     "due_date": <string "YYYY-MM-DD" or null>,
-    "expense_field": <one of: "property_tax" | "water_sewer" | "electricity" | "gas" | "insurance" | "mortgage" | "hoa" | "other_expense" | null — map to the specific recurring expense this represents>,
+    "expense_field": <one of: "property_tax" | "water_sewer" | "electricity" | "gas" | "insurance" | "mortgage" | "hoa" | "other_expense" | null>,
     "billing_period": <one of: "monthly" | "quarterly" | "annual" | "unknown">
   },
   "flags": {
@@ -60,6 +67,21 @@ Return a JSON object with exactly this structure:
     "extraction_notes": <string — any caveats or notes about extraction>
   }
 }
+
+CRITICAL — amount extraction rules:
+Many bills show multiple dollar figures. You MUST separate them correctly:
+- "amount" = ONLY the current billing period's new charges (e.g., "Current Charges: $200", "New Charges: $180")
+- "past_due_amount" = any overdue / past-due balance carried forward from prior periods (e.g., "Past Due: $2,000", "Previous Balance: $1,500", "Amount Past Due: $800")
+- NEVER use the "Total Amount Due" or "Balance Due" as amount if it includes a past-due component — use only the current period charges
+- If the bill shows ONLY a single total with no breakdown, use that as amount and set past_due_amount to null
+- If you cannot confidently separate them, set is_amount_uncertain to true and explain in extraction_notes
+
+document_type rules:
+- Regular utility/tax/insurance/maintenance bill → use that specific type
+- Past-due notice, delinquency notice, shut-off warning, violation notice, code violation, court summons, legal demand letter → "notice"
+- Mixed bill with past-due balance BUT primarily a regular bill → use the bill type (utility/tax/etc.) and populate past_due_amount
+
+is_past_due_notice = true when: the document is primarily a warning/notice/demand rather than a regular bill (even if it contains an amount)
 
 expense_field mapping rules:
 - Property tax bill → "property_tax"
@@ -70,13 +92,18 @@ expense_field mapping rules:
 - Mortgage statement → "mortgage"
 - HOA or condo fee → "hoa"
 - Other recurring expense → "other_expense"
-- One-time expense, receipt, maintenance invoice, or unknown → null
+- One-time expense, receipt, maintenance invoice, notice, or unknown → null
 
 billing_period rules:
 - Monthly bill → "monthly"
 - Quarterly bill → "quarterly"
 - Annual property tax or yearly bill → "annual"
 - Not determinable → "unknown"
+
+Property matching rules:
+- Match aggressively: use street number, street name, city, zip — a partial address match is enough
+- Account numbers and service addresses on utility bills often reveal the property — use them
+- If only one property is in the portfolio and the document seems related, prefer matching it over returning null
 `;
 
 async function extractPdfText(base64: string): Promise<string> {
@@ -132,9 +159,10 @@ export async function parsePropertyDocument(
       : "(no properties in portfolio yet)";
 
   const systemPrompt =
-    `You are a real estate document parsing engine. Analyze this landlord document and extract structured data. ` +
-    `Match the property to the known properties list using any identifying info on the document — property name, address, account number, or vendor service area. ` +
-    `If no confident match exists, set property_id to null.\n\n` +
+    `You are a real estate document parsing engine. Analyze this landlord document and extract structured data.\n\n` +
+    `Match the property to the known properties list using ANY identifying info on the document — ` +
+    `property name, street number, street name, city, zip code, account number, or utility service address. ` +
+    `Partial address matches are sufficient — if the street number and street name match, that is a confident match.\n\n` +
     `Known properties:\n${propertiesList}\n\n` +
     SCHEMA_DESCRIPTION;
 
@@ -174,5 +202,13 @@ export async function parsePropertyDocument(
 
   const content = response.choices[0].message.content;
   if (!content) throw new Error("Empty response from OpenAI");
-  return JSON.parse(content) as ParsedDocument;
+  const parsed = JSON.parse(content) as ParsedDocument;
+
+  // Ensure new fields exist even if model omitted them (backwards safety)
+  if (parsed.extracted_data) {
+    parsed.extracted_data.past_due_amount ??= null;
+    parsed.extracted_data.is_past_due_notice ??= false;
+  }
+
+  return parsed;
 }

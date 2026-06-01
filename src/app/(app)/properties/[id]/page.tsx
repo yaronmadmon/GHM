@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, ArrowLeft, BarChart2, Building2, MapPin, Plus, Users, Wrench } from "lucide-react";
+import { Activity, ArrowLeft, BarChart2, Building2, ExternalLink, FileText, FolderOpen, MapPin, Plus, Users, Wrench } from "lucide-react";
 import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { PropertyDeleteButton } from "@/components/properties/PropertyActions";
 import { PropertyPhotoGallery } from "@/components/properties/PropertyPhotoGallery";
@@ -23,7 +23,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
   const session = await getSession();
   if (!session?.user) redirect("/login");
 
-  const [property, activityEvents] = await Promise.all([
+  const [property, activityEvents, propertyDocuments] = await Promise.all([
     prisma.property.findFirst({
     where: { id, organizationId: session.user.organizationId },
     include: {
@@ -46,6 +46,11 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
       include: { actor: { select: { name: true } } },
       orderBy: { createdAt: "desc" },
       take: 15,
+    }),
+    prisma.propertyDocument.findMany({
+      where: { organizationId: session.user.organizationId, propertyId: id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
     }),
   ]);
 
@@ -293,6 +298,76 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
         </Link>
         <PropertyDeleteButton propertyId={id} propertyName={property.name} />
       </div>
+
+      {/* Documents filed to this property */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between border-b pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FolderOpen className="h-4 w-4 text-primary" />
+            Documents ({propertyDocuments.length})
+          </CardTitle>
+          <Link href="/documents">
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs">
+              <Plus className="h-3 w-3" />
+              Upload
+            </Button>
+          </Link>
+        </CardHeader>
+        <CardContent className="p-0">
+          {propertyDocuments.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
+              <FileText className="h-8 w-8 opacity-30" />
+              <p className="text-sm">No documents filed yet.</p>
+              <Link href="/documents" className="text-xs text-primary hover:underline">
+                Go to Document Center to upload
+              </Link>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {propertyDocuments.map((doc) => {
+                const isDataUri = doc.fileUrl.startsWith("data:");
+                const amountStr = doc.amount != null
+                  ? `$${Number(doc.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : null;
+                const dateStr = doc.issueDate
+                  ? doc.issueDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                  : doc.createdAt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                return (
+                  <div key={doc.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{doc.fileName}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {doc.vendor && <span>{doc.vendor} · </span>}
+                        {amountStr && <span className="font-mono">{amountStr} · </span>}
+                        {dateStr}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+                        doc.documentType === "notice" ? "bg-amber-100 text-amber-700" :
+                        doc.documentType === "utility" ? "bg-blue-100 text-blue-700" :
+                        doc.documentType === "tax" ? "bg-red-100 text-red-700" :
+                        doc.documentType === "insurance" ? "bg-purple-100 text-purple-700" :
+                        "bg-muted text-muted-foreground"
+                      }`}>{doc.documentType}</span>
+                      {isDataUri ? (
+                        <a href={doc.fileUrl} download={doc.fileName} className="flex items-center gap-0.5 text-xs text-primary hover:underline">
+                          Download
+                        </a>
+                      ) : (
+                        <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-0.5 text-xs text-primary hover:underline">
+                          View <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="border-b pb-3">
